@@ -1,5 +1,9 @@
-# Example study profile demonstrating reusability for a DIFFERENT Aria study.
-# Different input root, different target names/order, metadata disabled. No R/ edits needed.
+# Example study profile demonstrating reusability for a DIFFERENT three-target Aria study.
+# Copy to study_config.local.yml and set ARIA_DATA_ROOT / ARIA_OUTPUT_ROOT (or use CLI overrides).
+#
+# NOTE: the validated method uses three equal-duration target blocks. This template keeps three
+# targets so it runs against the same engine; see examples/new_study_setup.md for the target-count
+# discussion.
 extends: "../../config/default_config.yml"
 target_config: "target_config.yml"
 metadata_mapping: "metadata_mapping.yml"
@@ -7,11 +11,11 @@ metadata_mapping: "metadata_mapping.yml"
 study:
   id: example_study
   display_name: "Example Aria calibration study"
-  description: "Template: two-target calibration (screen_left -> screen_right), metadata disabled."
+  description: "Template: three ordered calibration targets, metadata disabled."
 
 input:
-  roots: ["E:/some_other_project/aria_data"]     # <-- change to your data root
-  recursive: true
+  roots:
+    - "${ARIA_DATA_ROOT}"
 
 participants:
   discovery_mode: discovered_only
@@ -20,14 +24,12 @@ participants:
 trials:
   expected_indices: [0, 1, 2]
 
-# This example uses a 2-target calibration. NOTE: the validated legacy baseline assumes exactly THREE
-# fixed-duration blocks; changing target count is a documented generalization beyond that baseline.
 target_blocks:
-  expected_count: 2
+  expected_count: 3
 
 metadata:
   enabled: false
 
 outputs:
-  root: "E:/some_other_project/aria_rig_calibration_results"
+  root: "${ARIA_OUTPUT_ROOT}"
   run_label: "example_study"

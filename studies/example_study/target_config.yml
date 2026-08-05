@@ -1,13 +1,17 @@
-# Example: two calibration targets in a different order. The engine uses target_1..target_N.
+# Example: three ordered calibration targets. The engine uses target_1..target_N by temporal order.
 calibration_targets:
-  expected_count: 2
+  expected_count: 3
   require_expected_order: true
   targets:
     - order: 1
-      id: screen_left
-      display_name: "Left screen"
+      id: target_left
+      display_name: "Left target"
       color: "#4c78a8"
     - order: 2
-      id: screen_right
-      display_name: "Right screen"
+      id: target_centre
+      display_name: "Centre target"
+      color: "#59a14f"
+    - order: 3
+      id: target_right
+      display_name: "Right target"
       color: "#d95f5f"
