@@ -7,9 +7,9 @@ import re
 from pathlib import Path
 import pandas as pd
 
-PRUNE = re.compile(r"(^\.venv|\.Rlibs$|site-packages$|rerun_env$|__pycache__$|node_modules$|\.git$|"
-                   r"_results$|_results_python$|_outputs$|literature_review|"
-                   r"gaze_screen_classification_results|aria_rig_calibration_results)", re.I)
+# Heavy or generated directories skipped during discovery so a broad data root is not fully walked.
+PRUNE = re.compile(r"(^\.venv$|^venv$|^env$|site-packages$|__pycache__$|node_modules$|\.git$|"
+                   r"\.tox$|\.eggs$|build$|dist$|_results$|_results_python$|_outputs$|_output$)", re.I)
 
 
 def _find_pruned(root: Path, pattern: re.Pattern) -> list[Path]:

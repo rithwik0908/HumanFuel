@@ -98,7 +98,7 @@ def scan_windows(work: pd.DataFrame, cfg: dict) -> dict:
         min_dist = _min_pairwise_distance(centroids)
         avg_disp = float(np.nanmean([sm["disp_mean"] for sm in summ]))
         if np.isnan(avg_disp):
-            avg_disp = 999.0  # legacy sentinel so empty windows never win
+            avg_disp = 999.0  # large penalty used by the standard method so empty windows cannot win
         score = counts.sum() + wq["min_counts_weight"] * counts.min() + wq["min_dist_weight"] * min_dist - wq["avg_disp_weight"] * avg_disp
 
         # Build the row preserving the original column order; per-block counts expand to N columns

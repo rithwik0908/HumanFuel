@@ -1,8 +1,8 @@
-# Maps Participant Tracker columns -> normalized metadata. Header matching is case-insensitive and
-# punctuation-insensitive (so "Williams' Sequence" matches). ONLY these fields are extracted; names,
-# emails, phone, payment, gift-card, and scheduling notes are never read.
+# Maps Participant Tracker columns -> the de-identified fields retained by the toolkit. Header matching
+# is case-insensitive and punctuation-insensitive (so "Williams' Sequence" matches). Only the
+# configured de-identified fields are retained in toolkit outputs; a forbidden-column guard aborts any
+# export that would include a personal column (see forbidden_tokens).
 metadata_mapping:
-  candidate_sheets_contain: ["pid"]          # any sheet whose headers include PID + trial columns
   participant_id_column: "PID"
   sequence_column: "Williams' Sequence"
   status_column: "Status"

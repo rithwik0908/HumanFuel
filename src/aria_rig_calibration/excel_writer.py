@@ -5,7 +5,7 @@ Role in the pipeline
 Write a formatted multi-sheet workbook summarising the run, then validate it structurally against the
 source DataFrames. Validation checks sheet presence, sheet order, row/column counts, header names and
 order, key totals for the selected-windows sheet, and the absence of forbidden personal columns.
-It reports structural parity, not a full cell-by-cell value comparison (documented in the report).
+It reports structural equivalence, not a full cell-by-cell value comparison (documented in the report).
 No personal identifiers are written.
 """
 from __future__ import annotations
@@ -132,7 +132,7 @@ def validate_workbook(dest: Path, sheet_map: dict, out_csv: Path, log,
     if report_md is not None:
         bad = v[~v.status.isin(["pass", "empty_ok"])]
         lines = ["# Excel validation", "",
-                 f"Structural parity check (sheet presence/order, row & column counts, header names & "
+                 f"Structural check (sheet presence/order, row & column counts, header names & "
                  f"order, forbidden-column scan, and the Selected Windows score total). This verifies "
                  f"structure and key totals, not every cell value.", "",
                  f"- Sheets ok: **{n_ok}/{len(v)}**"]

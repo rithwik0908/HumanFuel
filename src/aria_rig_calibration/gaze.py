@@ -42,7 +42,7 @@ def resolve_columns(df: pd.DataFrame, cfg: dict) -> dict:
 
 
 def infer_time_unit(col_name: str | None, values: np.ndarray) -> tuple[float, str]:
-    """Infer the timestamp unit exactly like the legacy scripts: column name first, else magnitude."""
+    """Infer the timestamp unit using the established name-first, magnitude-second rule."""
     cl = (col_name or "").lower()
     if "ns" in cl:
         return 1e9, "nanoseconds_from_column_name"
@@ -66,7 +66,7 @@ def infer_time_unit(col_name: str | None, values: np.ndarray) -> tuple[float, st
 
 
 def load_gaze(path: str | Path, cfg: dict) -> dict:
-    """Load a gaze CSV and build the legacy work frame (CPF gaze-ray points + angular fields).
+    """Load a gaze CSV and build the work frame (CPF gaze-ray points + angular fields).
 
     :return: dict with ``work`` DataFrame, ``cols`` mapping, and ``meta`` (ts unit, coord source).
     """
@@ -85,7 +85,7 @@ def load_gaze(path: str | Path, cfg: dict) -> dict:
     pitch = pd.to_numeric(df[cols["pitch"]], errors="coerce").to_numpy() if cols["pitch"] else np.full(n, np.nan)
     depth_present = cols["depth"] is not None
     depth = pd.to_numeric(df[cols["depth"]], errors="coerce").to_numpy() if depth_present else np.ones(n)
-    # legacy CPF gaze-ray point (depth-scaled unit direction)
+    # CPF gaze-ray point (depth-scaled unit direction)
     x = depth * np.cos(pitch) * np.sin(yaw)
     y = depth * np.sin(pitch)
     z = depth * np.cos(pitch) * np.cos(yaw)
