@@ -1,10 +1,22 @@
-"""Run-folder scaffolding, participant inventory (administrative status), and summaries."""
+"""Run-folder scaffolding, participant inventory, and cohort summaries.
+
+Role in the pipeline
+--------------------
+Create the timestamped run directory tree, build the per-participant inventory (including
+administrative no-data accounting that never guesses status), and derive the cohort summary tables.
+The *reporting scope* is the union of explicitly requested PIDs and, when ``--discover-all`` is used,
+every discovered PID — so newly added participants (e.g. PID38+) appear in the inventory, summaries,
+and denominators without any code change.
+"""
 from __future__ import annotations
+
+import re
 from datetime import datetime
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from .config import expand_pid_spec
+
 from .metadata import admin_status_for
 
 SUBDIRS = ["manifest", "manifest/config_snapshot", "metadata_snapshot", "inventory", "validation",
@@ -12,7 +24,34 @@ SUBDIRS = ["manifest", "manifest/config_snapshot", "metadata_snapshot", "invento
            "plots/png", "plots/svg", "plots/pdf", "plots/html", "reports", "logs"]
 
 
+def scope_run_label(base_label: str | None, reporting_pids: list[int], discover_all: bool) -> str:
+    """Build a run label that reflects the actual reporting scope.
+
+    :param base_label: the study's configured ``run_label`` (or None).
+    :param reporting_pids: the sorted list of PIDs being reported on.
+    :param discover_all: whether discovery scope was used.
+    :return: e.g. ``so_pedestrian_PID1_to_PID38`` or ``so_pedestrian_discovered_37PIDs``.
+    """
+    base = base_label or "run"
+    if not reporting_pids:
+        return base
+    lo, hi = reporting_pids[0], reporting_pids[-1]
+    contiguous = reporting_pids == list(range(lo, hi + 1))
+    if discover_all:
+        return f"{base}_discovered_{len(reporting_pids)}PIDs"
+    return f"{base}_PID{lo}_to_PID{hi}" if contiguous else f"{base}_{len(reporting_pids)}PIDs"
+
+
 def make_run_dir(cfg: dict, run_label: str | None = None, run_id: str | None = None, overwrite: bool = False) -> dict:
+    """Create the run directory tree under ``outputs.root`` and return a path map.
+
+    :param cfg: merged config (``outputs.root`` must be resolved).
+    :param run_label: label appended to the auto-generated run id.
+    :param run_id: explicit run id (skips timestamp generation) when provided.
+    :param overwrite: allow reusing an existing run folder.
+    :return: dict mapping each subdir key (``inventory``, ``windows``, ...) to its Path, plus
+        ``run_root`` and ``run_id``.
+    """
     if run_id is None:
         run_id = "run_" + datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_{run_label}" if run_label else "")
     root = Path(cfg["outputs"]["root"]) / run_id
@@ -21,12 +60,17 @@ def make_run_dir(cfg: dict, run_label: str | None = None, run_id: str | None = N
     for s in SUBDIRS:
         (root / s).mkdir(parents=True, exist_ok=True)
     paths = {s.replace("/", "_"): root / s for s in SUBDIRS}
-    paths["run_root"] = root; paths["run_id"] = run_id
+    paths["run_root"] = root
+    paths["run_id"] = run_id
     return paths
 
 
 def pid_folder_status_factory(cfg: dict, inv: pd.DataFrame):
-    """Fast PID-folder presence from top-level dirs; data presence from the discovery inventory."""
+    """Return a function ``pid -> {folder_found, gaze_data_found, empty_folder}``.
+
+    Folder presence is read from the top two directory levels under each input root; data presence
+    comes from the discovery inventory (a folder with no discoverable gaze file is an admin case).
+    """
     from .discovery import PRUNE
     cand: list[str] = []
     for r in cfg["input"]["roots"]:
@@ -39,7 +83,6 @@ def pid_folder_status_factory(cfg: dict, inv: pd.DataFrame):
                 cand += [d.name for d in l1.iterdir() if d.is_dir() and not PRUNE.search(d.name)]
             except OSError:
                 pass
-    import re
     folder_pids = {int(m.group(1)) for n in cand if (m := re.match(r"^[Pp][Ii][Dd][_]?0*(\d+)$", n))}
     data_pids = set(inv.loc[inv.selected, "participant_id"].dropna().astype(int)) if not inv.empty else set()
 
@@ -49,10 +92,16 @@ def pid_folder_status_factory(cfg: dict, inv: pd.DataFrame):
     return fn
 
 
-def build_participant_inventory(cfg, inv, requested_pids, processed_pids, meta_tbl, status_map, folder_fn) -> pd.DataFrame:
-    exp = list(cfg["trials"]["expected_indices"]); n_exp = len(exp)
+def build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta_tbl, status_map, folder_fn) -> pd.DataFrame:
+    """Build one inventory row per reporting PID (status, discovered/missing trials, admin status).
+
+    :param reporting_pids: union of requested and (when discovering) discovered PIDs.
+    :return: DataFrame with a ``final_participant_status`` per participant.
+    """
+    exp = list(cfg["trials"]["expected_indices"])
+    n_exp = len(exp)
     rows = []
-    for pid in requested_pids:
+    for pid in reporting_pids:
         fs = folder_fn(pid)
         sel = inv[(inv.participant_id == pid) & (inv.in_scope == True)] if not inv.empty else inv  # noqa: E712
         dt = sorted(set(sel.trial_index.dropna().astype(int))) if len(sel) else []
@@ -60,36 +109,46 @@ def build_participant_inventory(cfg, inv, requested_pids, processed_pids, meta_t
         succ = int(np.sum(np.array(processed_pids) == pid))
         trk, seqn = None, None
         if meta_tbl is not None and len(meta_tbl) and pid in set(meta_tbl.participant_id):
-            mr = meta_tbl[meta_tbl.participant_id == pid].iloc[0]; trk, seqn = mr.participant_status, mr.sequence_number
+            mr = meta_tbl[meta_tbl.participant_id == pid].iloc[0]
+            trk, seqn = mr.participant_status, mr.sequence_number
         has = fs["gaze_data_found"]
         adm = admin_status_for(trk, has, status_map)
         final = adm if not has else ("invalid_data" if len(dt) == 0 else "processing_failed" if succ < len(dt)
                                      else "processed" if succ >= n_exp else "partial_data")
         rows.append(dict(participant_id=pid, pid_label=f"PID{pid}", folder_found=fs["folder_found"],
-            folder_empty=fs["empty_folder"], gaze_files_found=has, expected_trials=n_exp, discovered_trials=len(dt),
-            discovered_trial_indices=",".join(map(str, dt)), missing_trial_indices=",".join(map(str, miss)),
-            processed_trials=succ, tracker_status=trk, normalized_admin_status=adm, sequence_number=seqn,
-            final_participant_status=final))
+                         folder_empty=fs["empty_folder"], gaze_files_found=has, expected_trials=n_exp,
+                         discovered_trials=len(dt), discovered_trial_indices=",".join(map(str, dt)),
+                         missing_trial_indices=",".join(map(str, miss)), processed_trials=succ,
+                         tracker_status=trk, normalized_admin_status=adm, sequence_number=seqn,
+                         final_participant_status=final))
     return pd.DataFrame(rows)
 
 
 def build_summaries(selected: pd.DataFrame, blocks, pairwise, part_inv, cfg) -> dict:
+    """Derive cohort summary tables from the selected-window and inventory frames.
+
+    Denominators use the reporting scope (``len(part_inv)``), so discover-all runs count discovered
+    participants correctly.
+    """
     det = selected
     admin = part_inv[part_inv.final_participant_status.str.startswith("administrative_no_data")]
     n_exp = len(cfg["trials"]["expected_indices"])
-    overall = pd.DataFrame({"metric": ["recorded_pids", "administrative_no_data_pids", "partial_data_pids",
-        "recorded_sessions", "selected_windows", "needs_review_sessions", "theoretical_sessions", "administrative_unrecorded_sessions"],
-        "value": [int(part_inv.gaze_files_found.sum()), len(admin), int((part_inv.final_participant_status == "partial_data").sum()),
+    overall = pd.DataFrame({"metric": ["reporting_pids", "recorded_pids", "administrative_no_data_pids",
+        "partial_data_pids", "recorded_sessions", "selected_windows", "needs_review_sessions",
+        "theoretical_sessions", "administrative_unrecorded_sessions"],
+        "value": [len(part_inv), int(part_inv.gaze_files_found.sum()), len(admin),
+                  int((part_inv.final_participant_status == "partial_data").sum()),
                   len(det), int((det.window_selected == True).sum()), int((det.needs_review == "Yes").sum()),  # noqa: E712
-                  len(expand_pid_spec(cfg["participants"]["include"])) * n_exp, len(admin) * n_exp]})
+                  len(part_inv) * n_exp, len(admin) * n_exp]})
 
     def grp(by):
-        if by not in det.columns:
-            return None
+        if by not in det.columns or det[by].dropna().empty:
+            return None  # nothing to group by (e.g. metadata disabled -> lod/sequence all null)
         g = det.groupby(by)
         return pd.DataFrame({by: list(g.groups.keys()), "n_sessions": g.size().values,
             "median_start_sec": g.calibration_start_sec.median().round(2).values,
             "pct_needs_review": (g.apply(lambda x: (x.needs_review == "Yes").mean() * 100, include_groups=False)).round(1).values})
+
     return {"overall": overall, "participant": grp("participant_id"), "trial": grp("trial_number"),
             "lod": grp("lod"), "williams": grp("sequence_number"),
             "timing": det[["participant_id", "trial_number", "calibration_start_sec", "calibration_end_sec", "confidence", "needs_review"]],
