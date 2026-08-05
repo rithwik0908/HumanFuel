@@ -84,6 +84,39 @@ def test_no_screen_region_outputs(synthetic_dataset, tmp_path):
         assert not any("screen_region" in c for c in cols)              # not a full-session classifier
 
 
+def test_validation_only_valid_data_status(synthetic_dataset, tmp_path):
+    res = run_pipeline(_opts(synthetic_dataset, tmp_path / "out", pids="1", validate_only=True))
+    run = Path(res.run_root)
+    inv = pd.read_csv(run / "inventory" / "requested_participants.csv")
+    assert inv.loc[inv.participant_id == 1, "final_participant_status"].iloc[0] == "validation_only"
+    assert res.processed_sessions == 0
+    assert not (run / "windows" / "selected_windows.csv").is_file()      # no selected-window outputs
+
+
+def test_validation_only_invalid_data_status(synthetic_dataset, tmp_path):
+    (synthetic_dataset / "PID_1" / "mps_1-0_vrs_general_eye_gaze.csv").write_text("bad,header\n1,2\n")
+    (synthetic_dataset / "PID_1" / "mps_1-1_vrs_general_eye_gaze.csv").write_text("bad,header\n1,2\n")
+    (synthetic_dataset / "PID_1" / "mps_1-2_vrs_general_eye_gaze.csv").write_text("bad,header\n1,2\n")
+    res = run_pipeline(_opts(synthetic_dataset, tmp_path / "out", pids="1", validate_only=True))
+    inv = pd.read_csv(Path(res.run_root) / "inventory" / "requested_participants.csv")
+    assert inv.loc[inv.participant_id == 1, "final_participant_status"].iloc[0] == "invalid_data"
+
+
+def test_validation_only_no_data_keeps_admin(synthetic_dataset, tmp_path):
+    # PID 5 has no recording -> administrative status even in validation-only mode.
+    res = run_pipeline(_opts(synthetic_dataset, tmp_path / "out", pids="1,5", validate_only=True))
+    inv = pd.read_csv(Path(res.run_root) / "inventory" / "requested_participants.csv")
+    st5 = inv.loc[inv.participant_id == 5, "final_participant_status"].iloc[0]
+    assert st5.startswith("administrative_no_data")
+
+
+def test_normal_run_statuses_unchanged(synthetic_dataset, tmp_path):
+    res = run_pipeline(_opts(synthetic_dataset, tmp_path / "out", pids="1"))
+    inv = pd.read_csv(Path(res.run_root) / "inventory" / "requested_participants.csv")
+    # PID1 has 3 valid trials but expected_indices is 0-4 -> partial_data (unchanged behaviour)
+    assert inv.loc[inv.participant_id == 1, "final_participant_status"].iloc[0] in {"processed", "partial_data"}
+
+
 def test_cli_main_synthetic(synthetic_dataset, tmp_path, capsys):
     code = main(["--study-config", str(EXAMPLE_CONFIG), "--data-root", str(synthetic_dataset),
                  "--output-root", str(tmp_path / "out"), "--metadata-mode", "none",

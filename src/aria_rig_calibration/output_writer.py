@@ -92,14 +92,21 @@ def pid_folder_status_factory(cfg: dict, inv: pd.DataFrame):
     return fn
 
 
-def build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta_tbl, status_map, folder_fn) -> pd.DataFrame:
+def build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta_tbl, status_map, folder_fn,
+                                validation_only: bool = False, valid_pids: set | None = None) -> pd.DataFrame:
     """Build one inventory row per reporting PID (status, discovered/missing trials, admin status).
 
     :param reporting_pids: union of requested and (when discovering) discovered PIDs.
+    :param validation_only: when True, calibration analysis was skipped; participants with valid
+        discovered data are marked ``validation_only`` (not ``processing_failed``), schema-invalid data
+        ``invalid_data``, and no-data participants keep their administrative status.
+    :param valid_pids: set of PIDs that had at least one schema-valid discovered file (used only in
+        validation-only mode).
     :return: DataFrame with a ``final_participant_status`` per participant.
     """
     exp = list(cfg["trials"]["expected_indices"])
     n_exp = len(exp)
+    valid_pids = valid_pids or set()
     rows = []
     for pid in reporting_pids:
         fs = folder_fn(pid)
@@ -113,8 +120,14 @@ def build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta_t
             trk, seqn = mr.participant_status, mr.sequence_number
         has = fs["gaze_data_found"]
         adm = admin_status_for(trk, has, status_map)
-        final = adm if not has else ("invalid_data" if len(dt) == 0 else "processing_failed" if succ < len(dt)
-                                     else "processed" if succ >= n_exp else "partial_data")
+        if not has:
+            final = adm
+        elif validation_only:
+            # Validation-only skips analysis by design, so 'processing_failed' must not be inferred.
+            final = "validation_only" if pid in valid_pids else "invalid_data"
+        else:
+            final = ("invalid_data" if len(dt) == 0 else "processing_failed" if succ < len(dt)
+                     else "processed" if succ >= n_exp else "partial_data")
         rows.append(dict(participant_id=pid, pid_label=f"PID{pid}", folder_found=fs["folder_found"],
                          folder_empty=fs["empty_folder"], gaze_files_found=has, expected_trials=n_exp,
                          discovered_trials=len(dt), discovered_trial_indices=",".join(map(str, dt)),

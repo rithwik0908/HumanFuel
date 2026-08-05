@@ -50,7 +50,7 @@ def load_and_validate_config(opts: RunOptions) -> dict:
         cfg["trials"]["expected_indices"] = expand_pid_spec(opts.trials.split(","))
     if opts.pids and not opts.discover_all:
         cfg["participants"]["discovery_mode"] = "requested_only"
-    require_valid_config(cfg)
+    require_valid_config(cfg, opts.metadata_mode)
     return cfg
 
 
@@ -257,10 +257,15 @@ def write_diagnostics(agg: dict, paths: dict) -> pd.DataFrame | None:
 
 
 def build_inventory(cfg: dict, inv: pd.DataFrame, reporting_pids: list[int], processed_pids: list[int],
-                    meta: pd.DataFrame, paths: dict) -> pd.DataFrame:
+                    meta: pd.DataFrame, paths: dict, validation_only: bool = False,
+                    schema: pd.DataFrame | None = None) -> pd.DataFrame:
     """Build and write the participant inventory / administrative accounting."""
     pfs = pid_folder_status_factory(cfg, inv)
-    part_inv = build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta, cfg["status_map"], pfs)
+    valid_pids = set()
+    if validation_only and schema is not None and len(schema):
+        valid_pids = set(schema.loc[schema.validation_status == "ok", "participant_id"].dropna().astype(int))
+    part_inv = build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta, cfg["status_map"], pfs,
+                                           validation_only=validation_only, valid_pids=valid_pids)
     part_inv.to_csv(paths["inventory"] / "requested_participants.csv", index=False)
     admin = part_inv[part_inv.final_participant_status.str.startswith("administrative_no_data")]
     admin.to_csv(paths["inventory"] / "administrative_no_data.csv", index=False)
@@ -376,7 +381,8 @@ def run_pipeline(opts: RunOptions) -> RunResult:
 
     sel_df, blk_df, pw_df = write_window_and_target_outputs(agg, paths)
     diag = write_diagnostics(agg, paths)
-    part_inv = build_inventory(cfg, inv, reporting_pids, agg["processed_pids"], meta, paths)
+    part_inv = build_inventory(cfg, inv, reporting_pids, agg["processed_pids"], meta, paths,
+                               validation_only=opts.validate_only, schema=schema)
 
     if sel_df is not None:
         su, rev = write_summaries_and_review(sel_df, blk_df, pw_df, part_inv, cfg, paths)
