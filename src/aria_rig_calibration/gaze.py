@@ -38,6 +38,7 @@ def resolve_columns(df: pd.DataFrame, cfg: dict) -> dict:
     ly, ry = pick(cols["left_yaw_candidates"]), pick(cols["right_yaw_candidates"])
     yaw_cols = [c for c in (ly, ry) if c]
     return {"timestamp": pick(cols["timestamp_candidates"]), "yaw_cols": yaw_cols,
+            "left_yaw": ly, "right_yaw": ry,  # actual per-eye columns (None if absent), preserved for reporting
             "pitch": pick(cols["pitch_candidates"]), "depth": pick(cols["depth_candidates"])}
 
 
@@ -117,8 +118,8 @@ def validate_schema(path: str | Path, rec: dict, cfg: dict) -> dict:
     dt = float(np.median(np.diff(np.sort(tv)))) if len(tv) > 1 else np.nan
     return {"participant_id": rec["participant_id"], "trial_index": rec["trial_index"],
             "trial_number": rec["trial_index"] + 1, "source_path": str(path), "row_count": g["meta"]["n_rows"],
-            "resolved_timestamp": g["meta"]["ts_col"], "resolved_left_yaw": (g["cols"]["yaw_cols"][:1] or [None])[0],
-            "resolved_right_yaw": g["cols"]["yaw_cols"][1] if len(g["cols"]["yaw_cols"]) > 1 else None,
+            "resolved_timestamp": g["meta"]["ts_col"], "resolved_left_yaw": g["cols"]["left_yaw"],
+            "resolved_right_yaw": g["cols"]["right_yaw"],
             "resolved_pitch": g["cols"]["pitch"], "resolved_depth": g["cols"]["depth"],
             "inferred_timestamp_unit": g["meta"]["ts_unit"],
             "session_duration_sec": round(float(tv.max() - tv.min()), 3) if len(tv) else np.nan,
