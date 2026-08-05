@@ -1,6 +1,8 @@
-"""Recursive PID/trial gaze-file discovery across heterogeneous Aria layouts (Python port).
-Prunes heavy directories (venvs, libs, prior results). Flags filename/folder disagreements and
-duplicates; never guesses. Independent of the gaze-screen classification pipeline.
+"""Recursive PID/trial gaze-file discovery across supported Aria layouts.
+
+Prunes heavy directories (virtual environments, prior results) so a broad data root is not fully
+walked, reconciles PID/trial from folder and filename, and flags disagreements and duplicates rather
+than guessing. Discovery operates only on gaze CSVs and does not classify the full recording.
 """
 from __future__ import annotations
 import re
@@ -86,8 +88,18 @@ def reconcile(p: dict) -> dict:
                 filename_parse=(f"pid={p['pid_file']},trial={p['trial_file']}" if p["pid_file"] is not None else "no-match"))
 
 
+# Stable inventory schema, so an empty discovery result still has every expected column.
+DISCOVERY_COLUMNS = ["participant_id", "trial_index", "trial_number", "absolute_path", "filename",
+                     "layout", "file_size_bytes", "modified_time", "parser_rule", "parse_confidence",
+                     "filename_parse", "parse_status", "exclusion_reason", "duplicate_group", "selected"]
+
+
 def discover_files(cfg: dict, log) -> pd.DataFrame:
-    """Discover gaze files under configured roots, reconcile PID/trial, and flag duplicates."""
+    """Discover gaze files under configured roots, reconcile PID/trial, and flag duplicates.
+
+    :return: a DataFrame with :data:`DISCOVERY_COLUMNS`; empty (zero rows, same columns) when no
+        matching files are found or the roots do not exist.
+    """
     pattern = re.compile(r"general_eye_gaze\.csv$", re.I)
     files: list[Path] = []
     for r in cfg["input"]["roots"]:
@@ -105,11 +117,10 @@ def discover_files(cfg: dict, log) -> pd.DataFrame:
                          file_size_bytes=st.st_size, modified_time=pd.Timestamp(st.st_mtime, unit="s").isoformat(),
                          parser_rule=p["layout"], parse_confidence=rc["parse_confidence"],
                          filename_parse=rc["filename_parse"], parse_status=rc["parse_status"],
-                         exclusion_reason=rc["exclusion_reason"]))
+                         exclusion_reason=rc["exclusion_reason"], duplicate_group=None, selected=False))
+    if not recs:
+        return pd.DataFrame(columns=DISCOVERY_COLUMNS)
     inv = pd.DataFrame(recs)
-    if inv.empty:
-        return inv
-    inv["duplicate_group"] = None; inv["selected"] = False
     ok = (inv.parse_status == "ok") & inv.participant_id.notna() & inv.trial_index.notna()
     key = inv.apply(lambda r: f"PID{int(r.participant_id)}_T{int(r.trial_index)}" if ok[r.name] else None, axis=1)
     for k in key.dropna().unique():
@@ -120,14 +131,51 @@ def discover_files(cfg: dict, log) -> pd.DataFrame:
             inv.loc[idx, "duplicate_group"] = k
             inv.loc[idx, "exclusion_reason"] = f"duplicate PID/trial ({len(idx)} files); none auto-selected"
             log.warning("discovery: duplicate %s: %d files", k, len(idx))
-    return inv
+    return inv[DISCOVERY_COLUMNS]
 
 
-def apply_scope(inv: pd.DataFrame, cfg: dict, requested_pids, requested_trials, discover_all=False) -> pd.DataFrame:
-    inv = inv.copy(); inv["in_scope"] = inv["selected"]
-    mode = "discovered_only" if discover_all else cfg["participants"].get("discovery_mode", "requested_plus_discovered")
-    if mode == "requested_only" and requested_pids:
-        inv["in_scope"] &= inv.participant_id.isin(requested_pids)
+def discovered_pids(inv: pd.DataFrame) -> list[int]:
+    """Sorted unique PIDs of the auto-selected (unambiguous) discovered files."""
+    if inv.empty:
+        return []
+    sel = inv.loc[inv.selected & inv.participant_id.notna(), "participant_id"]
+    return sorted(set(sel.astype(int)))
+
+
+def resolve_participant_scope(requested_pids, discovered, excluded_pids, discovery_mode: str,
+                              discover_all: bool) -> dict:
+    """Resolve the single participant population used for both processing and reporting.
+
+    :param requested_pids: PIDs from ``participants.include`` / ``--pids``.
+    :param discovered: PIDs found by discovery.
+    :param excluded_pids: PIDs from ``participants.exclude``.
+    :param discovery_mode: ``requested_only`` / ``discovered_only`` / ``requested_plus_discovered``.
+    :param discover_all: when True, the effective mode is ``discovered_only``.
+    :return: dict with ``processing_pids``, ``reporting_pids`` (identical population), and
+        ``effective_discovery_mode``. Exclusions are always applied.
+    """
+    effective = "discovered_only" if discover_all else discovery_mode
+    req, disc, exc = set(requested_pids or []), set(discovered or []), set(excluded_pids or [])
+    if effective == "requested_only":
+        base = req
+    elif effective == "discovered_only":
+        base = disc
+    else:  # requested_plus_discovered
+        base = req | disc
+    pids = sorted(base - exc)
+    return {"processing_pids": pids, "reporting_pids": pids, "effective_discovery_mode": effective}
+
+
+def apply_scope(inv: pd.DataFrame, processing_pids, requested_trials) -> pd.DataFrame:
+    """Mark in-scope files: auto-selected AND participant in ``processing_pids`` AND trial in scope.
+
+    Operates safely on an empty inventory (returns it with an ``in_scope`` column).
+    """
+    inv = inv.copy()
+    if inv.empty:
+        inv["in_scope"] = pd.Series(dtype=bool)
+        return inv
+    inv["in_scope"] = inv["selected"] & inv.participant_id.isin(list(processing_pids))
     if requested_trials:
-        inv["in_scope"] &= inv.trial_index.isin(requested_trials)
+        inv["in_scope"] &= inv.trial_index.isin(list(requested_trials))
     return inv
