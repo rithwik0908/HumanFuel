@@ -1,19 +1,53 @@
-# Generated run outputs never live in the source tree
-/aria_rig_calibration_results_python/
-*_results/
-*_results_python/
-# Python / env
+# ------------------------------------------------------------------ local configuration
+studies/**/study_config.local.yml
+*.local.yml
+.env
+.env.*
+
+# ------------------------------------------------------------------ raw Aria research data
+*.vrs
+*.rrd
+general_eye_gaze.csv
+*general_eye_gaze.csv
+mps_*/
+eyeTracking/
+eye_tracking/
+
+# ------------------------------------------------------------------ participant metadata / tracker
+*Participant*Tracker*.xls*
+*participant*tracker*.xls*
+online_tracker_snapshot.xlsx
+metadata_snapshot/
+*.xls
+*.xlsx
+
+# ------------------------------------------------------------------ generated run outputs
+results/
+outputs/
+aria_rig_calibration_results*/
+run_*/
+
+# ------------------------------------------------------------------ video / large binaries
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# ------------------------------------------------------------------ Python / env
 __pycache__/
 *.py[cod]
 .venv/
+.venv-clean/
 venv/
 *.egg-info/
 build/
 dist/
+*.whl
 .pytest_cache/
 .coverage
 htmlcov/
-# scratch
+
+# ------------------------------------------------------------------ scratch / test artifacts
 *.tmp
 tests/_tmp/
 tests/fixtures/*.csv
