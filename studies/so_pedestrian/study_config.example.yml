@@ -1,0 +1,46 @@
+# So Pedestrian study profile (EXAMPLE / template).
+#
+# Copy this file to `study_config.local.yml` (git-ignored) and either set the environment variables
+# below or replace the ${...} placeholders with local paths. The generic engine reads target_1..N;
+# target_config.yml maps them to the confirmed So Pedestrian identities (triview -> dashboard -> iPad).
+#
+# Required environment variables (or CLI overrides):
+#   ARIA_DATA_ROOT      -> folder containing the PID_* participant recordings   (--data-root)
+#   ARIA_OUTPUT_ROOT    -> folder to write run outputs into                     (--output-root)
+#   ARIA_METADATA_FILE  -> local Participant Tracker .xlsx (only if metadata enabled) (--metadata-file)
+
+extends: "../../config/default_config.yml"
+target_config: "target_config.yml"
+metadata_mapping: "metadata_mapping.yml"
+participant_status_mapping: "participant_status_mapping.yml"
+
+study:
+  id: so_pedestrian
+  display_name: "So Pedestrian (Project Aria rig calibration)"
+  description: "Locate the triview -> dashboard -> iPad rig-calibration interval per PID/trial."
+
+input:
+  roots:
+    - "${ARIA_DATA_ROOT}"
+
+participants:
+  discovery_mode: requested_plus_discovered
+  include: ["1-37"]
+  exclude: []
+
+trials:
+  expected_indices: [0, 1, 2, 3, 4]
+
+# calibration_search / target_blocks / window_quality / cluster_qc inherit the validated baseline
+# from default_config.yml (search 0..35 s, window 15 s, step 0.5 s, three 5 s blocks, score 4/80/25).
+
+metadata:
+  enabled: true
+  # The workbook is downloaded/read only to extract the de-identified fields in metadata_mapping.yml.
+  online:
+    document_id: "${ARIA_TRACKER_DOCUMENT_ID}"   # optional; leave unset to use the local file
+  local: "${ARIA_METADATA_FILE}"
+
+outputs:
+  root: "${ARIA_OUTPUT_ROOT}"
+  run_label: "so_pedestrian"

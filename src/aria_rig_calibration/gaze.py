@@ -1,6 +1,22 @@
-"""Gaze-signal processing: column resolution, timestamp normalization, and the legacy 3-D
-gaze-ray point construction. Ports the original ``detect_timestamp`` / ``detect_coordinates``
-exactly (name-first unit inference, ``x=depth*cos(pitch)*sin(yaw)`` etc.). No corrections applied.
+"""Gaze-signal processing.
+
+Role in the pipeline
+--------------------
+Resolve the timestamp/yaw/pitch/depth columns from configurable candidate lists, normalise the
+timestamp to seconds relative to the first valid sample, and build the CPF gaze-ray points used by the
+scorer and the target analysis.
+
+Scientific assumptions
+----------------------
+* Combined yaw is the mean of the present left/right CPF yaw columns.
+* Gaze-ray points are ``x = depth*cos(pitch)*sin(yaw)``, ``y = depth*sin(pitch)``,
+  ``z = depth*cos(pitch)*cos(yaw)``. These are **CPF-relative gaze-ray points, not physical rig
+  coordinates**, and depth scales them.
+* Depth handling: when the depth column is absent, unit depth is used (direction-only points). When
+  individual depth values are missing (NaN), the corresponding x/y/z become NaN and those rows are
+  treated as invalid gaze (dropped by ``valid_gaze``); they are not imputed.
+* Timestamp unit is inferred name-first (``ns``/``us``/``ms``/``s`` in the column name), else by
+  magnitude.
 """
 from __future__ import annotations
 from pathlib import Path

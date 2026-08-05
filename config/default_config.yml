@@ -1,6 +1,6 @@
-﻿# default_config.yml -- generic Project Aria rig-calibration defaults (NO study-specific paths).
-# A study profile (studies/<id>/study_config.yml) overrides/extends these. Baseline values are the
-# exact legacy parameters recovered in documentation/legacy_parameter_inventory.csv.
+# default_config.yml -- generic Project Aria rig-calibration defaults (NO machine-specific paths).
+# A study profile (studies/<id>/study_config.yml) extends and overrides these values.
+# Path values use ${ENV_VAR} placeholders resolved at load time; CLI flags override them.
 
 study:
   id: default
@@ -8,11 +8,8 @@ study:
   description: "Generic multi-target calibration-window search; override in a study profile."
 
 input:
-  roots: []                      # study must supply
-  recursive: true
-  accepted_file_patterns: ["general_eye_gaze.csv", "*general_eye_gaze.csv"]
-  accepted_folder_patterns: ["^pid[_]?0*([0-9]+)$", "^mps_([0-9]+)-([0-9]+)[_-]vrs$"]
-  duplicate_policy: exclude_all_and_flag
+  # Study profiles supply one or more roots. Discovery walks these recursively for gaze CSVs.
+  roots: []
 
 participants:
   discovery_mode: requested_plus_discovered   # requested_only | discovered_only | requested_plus_discovered
@@ -21,91 +18,66 @@ participants:
 
 trials:
   expected_indices: [0, 1, 2, 3, 4]
-  include: []
-  exclude: []
 
 columns:
+  # Candidate column names, resolved case-insensitively against the gaze CSV header.
   timestamp_candidates: ["tracking_timestamp_us","timestamp_us","timestamp_ns","timestamp_ms","timestamp","time"]
   left_yaw_candidates: ["left_yaw_rads_cpf"]
   right_yaw_candidates: ["right_yaw_rads_cpf"]
   pitch_candidates: ["pitch_rads_cpf","pitch"]
   depth_candidates: ["depth_m","depth"]
 
-timestamps:
-  unit_detection: name_then_magnitude     # legacy behaviour
-  forced_unit: null
-  allow_non_monotonic: true
-  duplicate_policy: keep
-
-gaze:
-  combined_yaw_method: mean_of_present     # legacy: mean(left,right)
-  angle_output_unit: both                  # radians + degrees
-
-# ---- exact legacy sliding-window baseline ----
+# ---- calibration-window search parameters (validated baseline) ----
 calibration_search:
-  method: legacy_sliding_window
+  method: sliding_window
   search_start_sec: 0.0
-  search_end_sec: 35.0                     # last window START cap (also capped at duration-15)
+  search_end_sec: 35.0                     # last window START cap (also capped at duration - window_length)
   window_length_sec: 15.0
   window_step_sec: 0.5
 
 target_blocks:
-  expected_count: 3
-  block_definition: fixed_equal_chunks     # three equal 5s chunks of the window
-  expected_duration_sec: 5.0
-  minimum_samples_per_block: 25            # QC threshold (not a hard filter in legacy)
+  expected_count: 3                        # number of equal-duration target blocks per window (N >= 2)
+  expected_duration_sec: 5.0               # window_length_sec / expected_count
+  minimum_samples_per_block: 25            # QC threshold (not a hard filter)
 
 window_quality:
-  metrics: [sum_counts, min_count, min_centroid_distance, avg_dispersion]
-  thresholds:
-    sample_qc_reference: 1500
   scoring:
-    formula: "sum(counts) + min_counts_weight*min(counts) + min_dist_weight*min_dist - avg_disp_weight*avg_disp"
+    # score = sum(counts) + min_counts_weight*min(counts) + min_dist_weight*min_dist - avg_disp_weight*avg_disp
     min_counts_weight: 4.0
     min_dist_weight: 80.0
     avg_disp_weight: 25.0
-  tie_policy: earliest_start               # strict '>' keeps earliest
+  tie_policy: earliest_start               # strict '>' keeps the earliest start on an exact score tie
 
 cluster_qc:
   minimum_separation: 0.02                 # separation floor (3-D gaze-ray units)
   dispersion_rule:
-    multiplier: 1.5                        # separation < max(mult*avg_disp, floor); file-dispersion*mult
+    multiplier: 1.5                        # separation threshold = max(mult*avg_disp, floor); file-dispersion*mult
   review_thresholds:
     min_total_samples: 100
     min_chunk_samples: 25
     late_start_sec: 35
-    confidence_rule: "High=0notes; Medium=1; Low>=2"
+    # confidence: High = 0 review notes; Medium = 1; Low >= 2
 
 depth:
-  enabled: true
-  role: qc_and_coordinate                  # depth scales the gaze-ray point (legacy); NOT a rig distance
-  output_units: meters
+  # Depth scales the CPF gaze-ray points used in the score's centroid-separation and dispersion terms.
+  # It is NOT a physical rig/screen distance. When absent, unit-depth gaze directions are used.
+  present_behavior: scale_gaze_ray
 
 metadata:
-  enabled: false                           # study profile enables + maps
-  source_priority: [online, local, cached]
+  enabled: false                           # a study profile enables and maps metadata
   online: null
   local: null
-  sheet: null
-  participant_id_column: null
-  sequence_column: null
-  trial_lod_columns: null
-  status_column: null
 
 outputs:
-  root: "E:/rithwikS2026/aria_rig_calibration_results_python"
+  root: "${ARIA_OUTPUT_ROOT}"              # resolved from the environment or --output-root
   csv: true
   xlsx: true
   png: true
   svg: true
   pdf: true
   html: true
-  save_all_windows: true
   save_top_n_windows: 5
-  save_all_target_blocks: true
   plot_dpi: 300
 
 integrity:
-  preserve_sources: true
-  hash_sources: true
-  compare_legacy_outputs: true
+  hash_sources: true                       # SHA-256 selected gaze files + config before and after the run

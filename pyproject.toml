@@ -4,17 +4,25 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-rig-calibration"
-version = "1.0.0"
-description = "Project Aria rig-calibration exploratory-analysis toolkit (parity-validated Python port of the verified R toolkit)."
+version = "1.1.0"
+description = "Configurable Project Aria rig-calibration analysis toolkit."
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "pandas>=2.0", "numpy>=1.24", "scipy>=1.10", "matplotlib>=3.7",
-  "plotly>=5.0", "pyyaml>=6.0", "openpyxl>=3.1", "jinja2>=3.1",
+  "pandas>=2.0", "numpy>=1.24", "matplotlib>=3.7", "pyyaml>=6.0", "openpyxl>=3.1",
+]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+  "Operating System :: OS Independent",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-cov>=4"]
-aria = ["projectaria-tools"]   # optional VRS/video helpers; NOT required for CSV analysis
+reports = ["plotly>=5.0"]          # interactive HTML aggregate plot (optional)
+aria = ["projectaria-tools"]       # optional VRS/video helpers; NOT required for CSV analysis
 
 [project.scripts]
 aria-rig-calibration = "aria_rig_calibration.cli:main"
@@ -22,6 +30,16 @@ aria-rig-calibration = "aria_rig_calibration.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+aria_rig_calibration = ["py.typed"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+pythonpath = [".", "src"]
+addopts = "-q -m 'not local_parity and not network'"
+markers = [
+  "unit: fast, isolated unit tests",
+  "integration: synthetic end-to-end tests",
+  "local_parity: opt-in tests requiring the private dataset / reference runs",
+  "network: tests requiring network access",
+]
