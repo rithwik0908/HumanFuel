@@ -1,8 +1,7 @@
 """Shared pytest fixtures and synthetic, de-identified data builders.
 
-The default suite uses only synthetic fixtures and never touches the private dataset, the Participant
-Tracker, or the network. Optional parity tests live under ``tests/local_parity`` and are marked
-``local_parity`` (opt-in via ``pytest -m local_parity``).
+The suite uses only synthetic fixtures and never touches a private dataset, a participant tracker, or
+the network.
 """
 from __future__ import annotations
 
