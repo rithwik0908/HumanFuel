@@ -1,0 +1,64 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package (with dev + reports extras)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[dev,reports]"
+
+      - name: Run portable tests
+        run: pytest -v --cov=aria_rig_calibration --cov-report=term-missing
+
+      - name: Synthetic end-to-end CLI run
+        shell: bash
+        run: |
+          python - <<'PY'
+          import subprocess, sys, tempfile
+          from pathlib import Path
+          sys.path.insert(0, ".")
+          from tests.conftest import write_session, EXAMPLE_CONFIG
+          data = Path(tempfile.mkdtemp()) / "data"
+          for ti in (0, 1, 2):
+              write_session(data, 1, ti, seed=10 + ti)
+          out = Path(tempfile.mkdtemp()) / "out"
+          subprocess.run([sys.executable, "-m", "aria_rig_calibration.cli",
+                          "--study-config", str(EXAMPLE_CONFIG), "--data-root", str(data),
+                          "--output-root", str(out), "--metadata-mode", "none",
+                          "--pids", "1", "--trials", "0-2"], check=True)
+          runs = list(out.glob("run_*"))
+          assert runs, "no run folder produced"
+          for rel in ["windows/selected_windows.csv", "excel/aria_rig_calibration_analysis.xlsx",
+                      "manifest/run_manifest.json", "inventory/requested_participants.csv"]:
+              assert (runs[0] / rel).is_file(), f"missing {rel}"
+          print("synthetic end-to-end OK:", runs[0].name)
+          PY
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            .pytest_cache/
+          if-no-files-found: ignore

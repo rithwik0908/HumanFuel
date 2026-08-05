@@ -26,6 +26,9 @@ the tracker gives no status, the case is recorded as `administrative_no_data_sta
 for in the inventory: `recorded_sessions + admin_unrecorded + missing_within = theoretical`.
 
 ## Privacy
-Names, emails, phone numbers, payment/gift-card details, and scheduling notes are **never** read into
-outputs. Only `participant_id`, trial, gaze metrics, and the three non-identifying metadata fields are
-exported.
+To read the configured fields the tracker workbook must be opened, so the toolkit does not claim the
+forbidden fields are "never read". Instead, **only the configured de-identified fields are retained**
+in outputs: `participant_id`, trial, gaze metrics, and the three non-identifying metadata fields
+(Williams Sequence, LOD, status). An online workbook is downloaded to a temporary file and deleted
+after normalisation (unless `--retain-metadata-snapshot` is given), and a forbidden-column guard
+aborts any export that would include a personal column. See [privacy.md](privacy.md).

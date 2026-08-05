@@ -1,137 +1,128 @@
-# Aria Rig-Calibration Toolkit (Python)
+# Project Aria Rig-Calibration Analysis Toolkit
 
-A standalone, reusable Python toolkit that **locates the multi-target rig-calibration interval** in
-Project Aria eye-gaze recordings and characterizes **where each calibration target appears in gaze
-space**. It is a **parity-validated port of the verified R toolkit** and reproduces the original So
-Pedestrian rig-calibration analysis exactly.
+A configurable Python toolkit that **locates the rig-calibration interval** in Project Aria eye-gaze
+recordings and **characterises where each configured calibration target appears in gaze space**.
 
-> **Parity (validated):** **85/85 exact** vs the original PID1–19 Python outputs · **125/125 exact
-> selected windows (0 regressions)** vs the verified R PID1–37 run · **37/37 participant-status
-> agreement**. The migration changes the software language and ecosystem, not the underlying
-> scientific method.
+> Scope note: this toolkit identifies the calibration interval and characterises the gaze-space
+> location of the configured targets. It does not classify the full recording into screen regions and
+> makes no calibration-accuracy claim without independent video/log validation.
 
-> This toolkit identifies the calibration interval and characterizes the gaze-space locations of the
-> triview, dashboard, and iPad targets. It does **not** classify the complete recording and does not
-> claim calibration accuracy without independent video or log validation.
+## Purpose
+For each participant/trial gaze recording, the toolkit finds the short interval in which the
+participant fixates a sequence of calibration targets, then reports where each target sits in gaze
+space (yaw/pitch), how tightly clustered each target's samples are, and how well separated the targets
+are — with quality-control flags for sessions that need a human look.
 
-## 1. Purpose
-Detect and analyze the multi-target rig-calibration sequence in each Aria participant/trial gaze
-recording, and describe the gaze-space location, stability, and distinctness of each target.
+## So Pedestrian study
+The included study profile (`studies/so_pedestrian/`) is configured for the So Pedestrian protocol:
 
-## 2. Relationship to the R toolkit
-This is a **controlled migration**, not a redesign. Method parameters, config schema, output layout,
-and the sliding-window algorithm are identical to `aria_rig_calibration_toolkit` (R). The R version is
-kept as the **archived reference implementation**; this Python version is now the primary toolkit.
-See [docs/migration_from_r.md](docs/migration_from_r.md).
+- Three ordered calibration targets: **triview/road → dashboard → iPad**.
+- Up to **five trials** per participant where available.
+- Non-identifying metadata attached for context: **Williams Sequence** and per-trial **LOD**.
+- **Automatic PID/trial discovery** across the supported folder layouts, including future participants.
 
-## 3. So Pedestrian use case
-Three calibration targets, confirmed order **Triview/Road → Dashboard → iPad**; PID/trial recordings
-(`PID_1/eyeTracking/mps_1-0_vrs/...` etc.); metadata (Williams Sequence + per-trial LOD) from the
-Participant Tracker.
+## Method overview
+The detector scans candidate calibration windows across each recording, splits each window into fixed
+equal-duration target blocks, and scores windows by how many samples they contain, how distinct the
+target clusters are, and how tightly each cluster holds. It selects the best-scoring window (earliest
+on a tie), maps the blocks to the configured targets, and computes per-target centres, dispersion, and
+pairwise separation, plus QC confidence. Every scanned window is saved for auditability. Full detail:
+[docs/calibration_method.md](docs/calibration_method.md).
 
-## 4. What it does
-```
-Aria gaze CSV
-  -> file discovery (PID/trial, many layouts)
-  -> schema validation + timestamp normalization
-  -> gaze-angle processing (yaw = mean(left,right); pitch; optional depth)
-  -> LEGACY sliding-window search (0..35s start, 15s window, 0.5s step, three 5s blocks)
-  -> three target blocks -> centres, dispersion, pairwise separation
-  -> QC + all scanned windows + alternative-window diagnostics
-  -> plots, summaries, Excel, review report
-```
-
-## 5. What it does NOT do
-It does **not**: classify the full recording into screen regions; guarantee correct manual ground
-truth; reconstruct physical rig coordinates; validate RGB projection; make causal claims about poor
-calibration; or confirm target identity beyond the configured temporal order. It is **separate** from
-`gaze_screen_classification_pipeline` and does not import that pipeline's detector.
-
-## 6. Structure
-`config/` (generic defaults) · `studies/<id>/` (study profiles: `study_config.yml`,
-`target_config.yml`, `metadata_mapping.yml`, `participant_status_mapping.yml`) ·
-`src/aria_rig_calibration/` (engine) · `scripts/` (run/compare) · `tests/` (pytest) · `docs/` ·
-`examples/`. Run outputs go to `aria_rig_calibration_results_python/run_<timestamp>_...` (never inside
-the source tree).
-
-## 7. Requirements
-Python **3.11+**. Packages: `pandas, numpy, scipy, matplotlib, plotly, pyyaml, openpyxl, jinja2`
-(runtime) and `pytest` (tests). Install: `pip install -e ".[dev]"` or `pip install -r
-requirements-dev.txt`. `projectaria-tools` is optional (VRS/video helpers only) and not required for
-CSV analysis.
-
-## 8. Install
+## Installation
 ```powershell
-Set-Location 'E:\rithwikS2026\aria_rig_calibration_toolkit_python'
-python -m pip install -e ".[dev]"
+# Windows PowerShell
+python -m pip install .
 ```
+```bat
+:: Windows Command Prompt
+python -m pip install .
+```
+```bash
+# macOS / Linux
+python3 -m pip install .
+```
+Add `".[dev]"` for the test tools and `".[reports]"` for interactive HTML plots. Python 3.11+ is
+required. `projectaria-tools` is optional and not needed for CSV analysis.
 
-## 9. Input data
-Required columns: a timestamp (`tracking_timestamp_us`/…), `left_yaw_rads_cpf`, `right_yaw_rads_cpf`,
-`pitch_rads_cpf`. Optional: `depth_m` (QC/exploratory only). Column names are resolved from
-configurable candidate lists.
-
-## 10. Supported layouts
-`PID_1/eyeTracking/mps_1-0_vrs/general_eye_gaze.csv`,
-`.../mps_1-0_vrs/eye_gaze/general_eye_gaze.csv`, `PID_1/mps_1-0_vrs_general_eye_gaze.csv`,
-`PID1/trial_0/general_eye_gaze.csv`, flat `mps_1-0_vrs_general_eye_gaze.csv`. PID folders:
-`PID1/PID_1/PID01/PID_01/pid1`. A `-vrs` separator typo is tolerated; filename/folder disagreements
-are flagged, not guessed.
-
-## 11. Running (PowerShell)
+## Configuration
+Paths are supplied at runtime, so nothing machine-specific is committed. Copy the example profile and
+provide paths via environment variables or CLI flags (see [docs/configuration.md](docs/configuration.md)):
 ```powershell
-Set-Location 'E:\rithwikS2026\aria_rig_calibration_toolkit_python'
-$S = 'studies\so_pedestrian\study_config.yml'
-# PID1-37
-python scripts\run_analysis.py --study-config $S --mode legacy_reproduction --pids 1-37 --trials 0-4 --refresh-metadata
-# one PID / selected PIDs / trials
-python scripts\run_analysis.py --study-config $S --pids 35
-# all current + future PIDs (no code edits needed)
-python scripts\run_analysis.py --study-config $S --discover-all --refresh-metadata
-# offline metadata
-python scripts\run_analysis.py --study-config $S --pids 1-37 --offline-metadata
-# parity checks
-python scripts\compare_with_original_python.py
-python scripts\compare_with_r_reference.py --r-run <R_RUN> --python-run <PY_RUN>
+Copy-Item studies\so_pedestrian\study_config.example.yml studies\so_pedestrian\study_config.local.yml
+$env:ARIA_DATA_ROOT   = "D:\aria\participants"
+$env:ARIA_OUTPUT_ROOT = "D:\aria\results"
+$env:ARIA_METADATA_FILE = "D:\aria\Participant Tracker.xlsx"   # only if metadata enabled
 ```
-The installed console command `aria-rig-calibration <same args>` is equivalent to
-`python scripts\run_analysis.py`.
+CLI overrides (`--data-root`, `--output-root`, `--metadata-file`) take precedence over environment
+variables and the config file.
 
-## 12. Output guide (per run)
-`inventory/` (requested_participants [1 row/requested PID], discovered_files, administrative_no_data,
-missing_trials, duplicate_files, ambiguous_files) · `validation/` (schema, r_reference_parity,
-excel_validation) · `windows/` (all_scanned_windows, top_candidate_windows, selected_windows) ·
-`targets/` (block_samples, centres, pairwise_separation, quality_summary) · `diagnostics/` ·
-`metadata/` · `summaries/` · `review/` · `excel/aria_rig_calibration_analysis.xlsx` · `plots/{png,
-svg,pdf,html}/` · `reports/` · `logs/` · `manifest/`.
+## Running
+```powershell
+$S = "studies\so_pedestrian\study_config.local.yml"
+aria-rig-calibration --study-config $S --pids 35                     # one participant
+aria-rig-calibration --study-config $S --pids 1-37 --trials 0-4      # a range
+aria-rig-calibration --study-config $S --pids 1-6,35                 # selected participants
+aria-rig-calibration --study-config $S --discover-all                # every discovered participant
+aria-rig-calibration --study-config $S --pids 35 --metadata-mode none   # metadata disabled
+aria-rig-calibration --study-config $S --pids 35 --validate-only     # discovery + schema only
+```
+`python -m aria_rig_calibration.cli ...` and `python scripts/run_analysis.py ...` are equivalent.
 
-## 13. How the legacy sliding-window method works
-Scan window starts `0 .. min(35, duration−15)` in **0.5 s** steps. Each **15 s** window splits into
-**three 5 s blocks**. Score `= sum(counts) + 4·min(count) + 80·min_centroid_distance −
-25·avg_dispersion` (3-D gaze-ray centroids). Pick the **max-score** window (earliest wins ties).
-Blocks map by time to **triview → dashboard → iPad**. QC/confidence (High/Medium/Low) from sample
-counts, block distinctness, dispersion. See [docs/legacy_method.md](docs/legacy_method.md).
+## Inputs
+Required gaze columns (resolved from configurable candidates): a timestamp
+(`tracking_timestamp_us`/…), `left_yaw_rads_cpf`, `right_yaw_rads_cpf`, `pitch_rads_cpf`. Optional:
+`depth_m`. Supported layouts include
+`PID_1/eyeTracking/mps_1-0_vrs/general_eye_gaze.csv`, `.../eye_gaze/general_eye_gaze.csv`,
+`PID_1/mps_1-0_vrs_general_eye_gaze.csv`, `PID1/trial_0/general_eye_gaze.csv`, and flat
+`mps_1-0_vrs_general_eye_gaze.csv`. PID/trial disagreements are flagged, never guessed.
 
-## 14. Interpreting results (`exploratory_result`)
-`selected_clear` (High confidence) · `selected_with_qc_warning` · `multiple_similar_windows`
-(best≈second-best score — timing is ambiguous) · `weak_target_separation` · `insufficient_samples` ·
-`no_valid_window` · `administrative_no_data`.
+## Outputs (per run, under `ARIA_OUTPUT_ROOT/run_<timestamp>_...`)
+- `windows/` — `selected_windows.csv`, `all_scanned_windows.csv`, `top_candidate_windows.csv`.
+- `targets/` — per-target centres, block metrics, pairwise separation, quality summary.
+- `inventory/` — participant inventory, discovered files, administrative no-data, missing/duplicate/ambiguous.
+- `summaries/`, `diagnostics/`, `review/` — cohort summaries, per-session diagnostics, manual-review manifest.
+- `excel/aria_rig_calibration_analysis.xlsx` — the formatted workbook.
+- `plots/{png,svg,pdf,html}/` — figures (formats toggle independently).
+- `validation/` — schema and Excel validation reports.
+- `manifest/` — run manifest, merged-config snapshot, and source-integrity hashes.
+- `metadata/`, `logs/`. See [docs/data_dictionary.md](docs/data_dictionary.md).
 
-## 15. Coordinate frames & depth
-x/y/z are **CPF-relative gaze-ray points** (unit direction from yaw/pitch, ×depth) — **not** physical
-rig coordinates; no rig transform is applied. Primary analysis is yaw/pitch angular space; depth is
-QC/exploratory. See [docs/coordinate_frames.md](docs/coordinate_frames.md).
+## Interpreting QC (`exploratory_result` / confidence)
+- **Clear** (`selected_clear`, High) — a distinct calibration window was found.
+- **Review recommended** (`selected_with_qc_warning`) — chosen, but QC raised a note.
+- **Similar candidate windows** (`multiple_similar_windows`) — the timing is ambiguous; check the
+  candidate-score plot.
+- **Weak target separation** (`weak_target_separation`) — target clusters are close together.
+- **Insufficient data** (`insufficient_samples`) — sparse/short data in a block.
+- **Administrative no data** (`administrative_no_data`) — no recording exists (not a scientific
+  failure; see the inventory). Details in [docs/manual_review_guide.md](docs/manual_review_guide.md).
 
-## 16. Adding a new Aria study
-Copy `studies/example_study/`, edit `study_config.yml` (input roots), `target_config.yml` (target
-names/order/count), and `metadata_mapping.yml` (or disable metadata). Run with `--discover-all`. No
-engine (`src/`) edits are required. See [examples/new_study_setup.md](examples/new_study_setup.md).
+## Coordinate-frame note
+`x/y/z` are **CPF-relative gaze-ray points** (yaw/pitch scaled by depth). Depth participates in the
+scoring via these points; they are **not** physical rig coordinates. Yaw/pitch angular space is the
+primary interpretation. See [docs/coordinate_frames.md](docs/coordinate_frames.md).
 
-## 17. Testing / reproducibility / privacy / license
-`pytest` (12/12). Reproducibility: fixed method + config snapshot in each run manifest; parity
-validated 85/85 (original Python) and 125/125 windows + 37/37 status (R PID1–37). **Privacy:** no
-names, emails, phones, payment, gift-card, or scheduling notes are ever exported — only de-identified
-`participant_id`, trial, gaze-derived metrics, and non-identifying metadata (Williams Sequence, LOD,
-admin status). **Limitation:** the legacy algorithm assumes exactly **three fixed-duration blocks**; a
-different target count is a generalization beyond the validated baseline. License: see `LICENSE`.
-See also [docs/troubleshooting.md](docs/troubleshooting.md).
+## Future participants & other studies
+With `--discover-all`, new PIDs (e.g. PID38+) are discovered, processed, and reported automatically —
+no code change. The current validated implementation supports **three ordered calibration targets**;
+the engine is written generically for `N ≥ 2` targets, but only the three-target configuration is
+validated (see [examples/new_study_setup.md](examples/new_study_setup.md)).
+
+## Privacy
+Raw gaze files and Participant Tracker workbooks must **not** be committed; `.gitignore` covers them,
+and paths live in local config / environment variables. Only de-identified fields are retained in
+outputs. See [docs/privacy.md](docs/privacy.md).
+
+## Testing
+```bash
+pytest                     # portable unit + integration tests (no private data, no network)
+pytest -m local_parity     # optional; requires the private dataset env vars
+```
+
+## Troubleshooting
+See [docs/troubleshooting.md](docs/troubleshooting.md).
+
+## Citation / acknowledgements
+Please confirm authorship, citation, and licensing with the project supervisors before public
+distribution. Licensing status: see [LICENSE_PENDING.md](LICENSE_PENDING.md).
