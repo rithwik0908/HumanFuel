@@ -86,6 +86,9 @@ def load_study_config(study_config_path: str | Path) -> dict[str, Any]:
     cfg = _deep_merge(cfg, scfg)
     if scfg.get("target_config"):
         cfg["target"] = yaml.safe_load((p.parent / scfg["target_config"]).read_text(encoding="utf-8"))["calibration_targets"]
+        # Sort targets by their configured order so downstream analysis/visualisation are deterministic.
+        if isinstance(cfg["target"].get("targets"), list):
+            cfg["target"]["targets"] = sorted(cfg["target"]["targets"], key=lambda t: t.get("order", 0))
     if scfg.get("metadata_mapping"):
         cfg["metadata_map"] = yaml.safe_load((p.parent / scfg["metadata_mapping"]).read_text(encoding="utf-8"))["metadata_mapping"]
     if scfg.get("participant_status_mapping"):
@@ -156,18 +159,35 @@ def validate_config(cfg: dict, metadata_mode: str = "auto") -> tuple[bool, list[
         if cs["search_end_sec"] < cs["search_start_sec"]:
             problems.append("calibration_search.search_end_sec must be >= search_start_sec")
 
-    # Target definitions: count >= 2, matches list length, unique 1..N orders.
+    # Supported-value checks: only one method/tie-policy/depth behaviour is implemented.
+    if cs.get("method") not in (None, "sliding_window"):
+        problems.append(f"calibration_search.method must be 'sliding_window' (got {cs.get('method')!r})")
+    tie = cfg.get("window_quality", {}).get("tie_policy")
+    if tie not in (None, "earliest_start"):
+        problems.append(f"window_quality.tie_policy must be 'earliest_start' (got {tie!r})")
+    depth_beh = cfg.get("depth", {}).get("present_behavior")
+    if depth_beh not in (None, "scale_gaze_ray"):
+        problems.append(f"depth.present_behavior must be 'scale_gaze_ray' (got {depth_beh!r})")
+
+    # Target definitions: count >= 2, matches list length, orders exactly 1..N, unique ids.
     tb = cfg.get("target_blocks", {})
     count = tb.get("expected_count")
     if count is None or count < 2:
         problems.append("target_blocks.expected_count must be an integer >= 2")
-    targets = (cfg.get("target") or {}).get("targets")
+    target_cfg = cfg.get("target") or {}
+    targets = target_cfg.get("targets")
+    tcount = target_cfg.get("expected_count")
+    if tcount is not None and count is not None and tcount != count:
+        problems.append(f"calibration_targets.expected_count ({tcount}) != target_blocks.expected_count ({count})")
     if targets is not None:
-        if count is not None and len(targets) != count:
-            problems.append(f"target list length ({len(targets)}) != target_blocks.expected_count ({count})")
+        n = len(targets)
+        if count is not None and n != count:
+            problems.append(f"target list length ({n}) != target_blocks.expected_count ({count})")
         orders = [t.get("order") for t in targets]
-        if len(set(orders)) != len(orders):
-            problems.append("duplicate target order values in target config")
+        if sorted(orders) != list(range(1, n + 1)):
+            problems.append(f"target orders must be exactly 1..{n} (got {orders})")
+        elif target_cfg.get("require_expected_order") and orders != list(range(1, n + 1)):
+            problems.append("require_expected_order is set: targets must be listed in ascending order 1..N")
         ids = [t.get("id") for t in targets]
         if any(i is None for i in ids) or len(set(ids)) != len(ids):
             problems.append("target ids must be present and unique")
