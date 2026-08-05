@@ -31,6 +31,10 @@ METADATA_COLUMNS = ["participant_id", "trial_index", "trial_number", "sequence_n
 _UNRESOLVED = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 
+class MetadataError(Exception):
+    """Raised when a required metadata source (online or local) is requested but unavailable."""
+
+
 def _norm(s: str) -> str:
     """Normalise a header for matching: lowercase and strip non-alphanumerics."""
     return re.sub(r"[^a-z0-9]", "", str(s).strip().lower())
@@ -110,7 +114,9 @@ def resolve_metadata(cfg: dict, snapshot_dir: Path, log, mode: str = "auto", ret
             return {"source": "online", "workbook": workbook, "temp_path": temp_path, "online": online}
         online["reason"] = "online export unavailable or not an xlsx"
         if mode == "online":
-            raise RuntimeError("metadata-mode 'online' requested but the online export was unavailable")
+            raise MetadataError("metadata-mode 'online' requested but the online export was unavailable")
+    elif mode == "online":
+        raise MetadataError("metadata-mode 'online' requested but no resolved online document id was configured")
 
     loc = md.get("local")
     if loc and not _UNRESOLVED.search(str(loc)) and Path(loc).exists():
@@ -118,7 +124,7 @@ def resolve_metadata(cfg: dict, snapshot_dir: Path, log, mode: str = "auto", ret
             log.warning("metadata: online unavailable (%s); using local file", online["reason"])
         return {"source": "local", "workbook": loc, "temp_path": None, "online": online}
     if mode == "local":
-        raise RuntimeError(f"metadata-mode 'local' requested but no local workbook was found: {loc!r}")
+        raise MetadataError(f"metadata-mode 'local' requested but no local workbook was found: {loc!r}")
     log.warning("metadata: no workbook available; proceeding without metadata")
     return {"source": "none", "workbook": None, "temp_path": None, "online": online}
 

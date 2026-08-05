@@ -130,14 +130,17 @@ def _has_unresolved(value: Any) -> bool:
     return False
 
 
-def validate_config(cfg: dict) -> tuple[bool, list[str]]:
+def validate_config(cfg: dict, metadata_mode: str = "auto") -> tuple[bool, list[str]]:
     """Validate scientific parameters, target definitions, and required paths.
 
     Checks (non-exhaustive): positive window length/step, ``search_end >= search_start``, target count
     >= 2 matching the target list with unique orders, block duration consistent with the target count,
-    a non-empty resolved output root, and resolved input roots (env vars supplied).
+    a non-empty resolved output root, and resolved input roots (env vars supplied). Metadata
+    requirements depend on ``metadata_mode`` (see :func:`_metadata_problems`).
 
     :param cfg: merged config from :func:`load_study_config` (after any :func:`apply_path_overrides`).
+    :param metadata_mode: ``auto``/``online``/``local``/``none`` — controls which metadata sources are
+        required.
     :return: ``(ok, problems)`` where ``problems`` is a list of human-readable messages.
     """
     problems: list[str] = []
@@ -187,17 +190,37 @@ def validate_config(cfg: dict) -> tuple[bool, list[str]]:
         problems.append("ARIA_OUTPUT_ROOT is not set. Set the environment variable, pass --output-root, "
                         "or provide outputs.root in a local study configuration file.")
 
-    # Metadata local file only required when metadata is enabled and configured to use it.
-    md = cfg.get("metadata", {})
-    if md.get("enabled") and _has_unresolved(md.get("local")):
-        problems.append("ARIA_METADATA_FILE is not set. Set the environment variable, pass "
-                        "--metadata-file, or provide metadata.local (or run with --metadata-mode none).")
+    problems += _metadata_problems(cfg.get("metadata", {}), metadata_mode)
     return (len(problems) == 0, problems)
 
 
-def require_valid_config(cfg: dict) -> None:
+def _metadata_problems(md: dict, mode: str) -> list[str]:
+    """Return metadata configuration problems for the selected ``metadata_mode``.
+
+    * ``none``  - no metadata source is required.
+    * ``online``- a resolved online document id is required; the local file is irrelevant.
+    * ``local`` - an existing local workbook is required; the online id is irrelevant.
+    * ``auto``  - neither source is required (the run proceeds with a warning if neither is available).
+    """
+    doc = (md.get("online") or {}).get("document_id")
+    loc = md.get("local")
+    if mode == "online":
+        if not doc or _has_unresolved(doc):
+            return ["metadata-mode online requires a resolved online document id "
+                    "(set ARIA_TRACKER_DOCUMENT_ID or metadata.online.document_id)."]
+    elif mode == "local":
+        if not loc or _has_unresolved(loc):
+            return ["metadata-mode local requires a local workbook (set ARIA_METADATA_FILE, pass "
+                    "--metadata-file, or provide metadata.local)."]
+        if not Path(loc).is_file():
+            return [f"metadata-mode local: workbook not found: {loc}"]
+    # 'none' and 'auto' impose no hard requirement here; 'auto' warns at run time if nothing resolves.
+    return []
+
+
+def require_valid_config(cfg: dict, metadata_mode: str = "auto") -> None:
     """Raise :class:`ConfigError` with all problems if the config is invalid; otherwise return None."""
-    ok, problems = validate_config(cfg)
+    ok, problems = validate_config(cfg, metadata_mode)
     if not ok:
         raise ConfigError("Invalid configuration:\n  - " + "\n  - ".join(problems))
 
