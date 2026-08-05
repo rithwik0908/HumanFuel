@@ -25,13 +25,13 @@ import yaml
 from . import excel_writer, integrity, visualization
 from .calibration import scan_windows
 from .config import apply_path_overrides, expand_pid_spec, load_study_config, require_valid_config
-from .discovery import apply_scope, discover_files
+from .discovery import apply_scope, discover_files, discovered_pids, resolve_participant_scope
 from .gaze import load_gaze, validate_schema
 from .logging_utils import CollectingLogger
 from .metadata import check_forbidden_columns, normalize_metadata, resolve_metadata
 from .models import RunOptions, RunResult
-from .output_writer import (build_participant_inventory, build_summaries, make_run_dir,
-                            pid_folder_status_factory, scope_run_label)
+from .output_writer import (DEFAULT_STATUS_MAP, build_participant_inventory, build_summaries,
+                            make_run_dir, pid_folder_status_factory, scope_run_label)
 from .target_blocks import analyze_targets
 
 
@@ -91,9 +91,12 @@ def resolve_run_metadata(cfg: dict, paths: dict, log, opts: RunOptions) -> tuple
     """Resolve and normalise metadata, delete any temporary workbook, and write the metadata report."""
     msrc = resolve_metadata(cfg, paths["metadata_snapshot"], log, mode=opts.metadata_mode,
                             retain_snapshot=opts.retain_metadata_snapshot)
-    meta = normalize_metadata(msrc["workbook"], cfg.get("metadata_map", {}), msrc["source"], log)
-    if msrc.get("temp_path"):
-        Path(msrc["temp_path"]).unlink(missing_ok=True)  # never retain the full workbook by default
+    try:
+        meta = normalize_metadata(msrc["workbook"], cfg.get("metadata_map", {}), msrc["source"], log)
+    finally:
+        # Always delete the temporary download, even if normalisation raised (retained snapshot stays).
+        if msrc.get("temp_path"):
+            Path(msrc["temp_path"]).unlink(missing_ok=True)
     meta.to_csv(paths["metadata"] / "participant_trial_metadata.csv", index=False)
     json.dump({"source": msrc["source"], "online": msrc["online"], "rows": len(meta),
                "retained_snapshot": bool(opts.retain_metadata_snapshot and msrc["source"] == "online")},
@@ -101,17 +104,15 @@ def resolve_run_metadata(cfg: dict, paths: dict, log, opts: RunOptions) -> tuple
     return msrc, meta
 
 
-def discover_sessions(cfg: dict, log, requested: list[int], trials: list[int], discover_all: bool, paths: dict):
-    """Discover gaze files, apply scope, and write discovery inventory CSVs. Returns (inv, process)."""
-    inv = discover_files(cfg, log)
-    inv = apply_scope(inv, cfg, requested, trials, discover_all=discover_all)
+def write_discovery_outputs(inv: pd.DataFrame, log, paths: dict) -> pd.DataFrame:
+    """Write discovery inventory CSVs (already scoped) and return the in-scope rows to process."""
     inv.to_csv(paths["inventory"] / "discovered_files.csv", index=False)
     if not inv.empty:
         inv[inv.parse_status.isin(["pid_mismatch", "trial_mismatch", "no_pid", "no_trial"])].to_csv(paths["inventory"] / "ambiguous_files.csv", index=False)
         inv[inv.duplicate_group.notna()].to_csv(paths["inventory"] / "duplicate_files.csv", index=False)
     process = inv[inv.in_scope == True] if not inv.empty else inv  # noqa: E712
     log.info("discovery: %d files, %d in-scope", len(inv), len(process))
-    return inv, process
+    return process
 
 
 def validate_sessions(process: pd.DataFrame, cfg: dict, paths: dict) -> pd.DataFrame:
@@ -153,6 +154,12 @@ def analyze_one_session(row, cfg: dict, meta: pd.DataFrame, schema: pd.DataFrame
         mr = meta[(meta.participant_id == pid) & (meta.trial_index == ti)] if len(meta) else meta
         seqn = mr.sequence_number.iloc[0] if len(mr) else None
         lod = mr.lod.iloc[0] if len(mr) else None
+        if sw["selected"] is None:
+            # Schema was valid but no complete calibration window exists (e.g. recording shorter than
+            # the window). Not a processing failure; recorded so the batch continues.
+            reason = sw.get("reason") or "no_valid_window"
+            return {"pid": pid, "trial_index": ti, "processed": False,
+                    "status": {"participant_id": pid, "trial_index": ti, "status": "no_window", "reason": reason}}
         out: dict = {"pid": pid, "trial_index": ti, "processed": True,
                      "status": {"participant_id": pid, "trial_index": ti, "status": "processed", "reason": None}}
         if len(sw["all_windows"]):
@@ -161,7 +168,7 @@ def analyze_one_session(row, cfg: dict, meta: pd.DataFrame, schema: pd.DataFrame
             aw["trial_number"] = ti + 1
             out["all_windows"] = aw
             out["top_windows"] = aw.head(cfg["outputs"].get("save_top_n_windows", 5))
-        if sw["selected"] is not None:
+        if True:
             s, rv = sw["selected"], sw["review"]
             margin = float(sw["all_windows"].score.iloc[0] - sw["all_windows"].score.iloc[1]) if len(sw["all_windows"]) >= 2 else np.nan
             notes = rv["notes"]
@@ -256,7 +263,7 @@ def write_diagnostics(agg: dict, paths: dict) -> pd.DataFrame | None:
     return dd
 
 
-def build_inventory(cfg: dict, inv: pd.DataFrame, reporting_pids: list[int], processed_pids: list[int],
+def build_inventory(cfg: dict, inv: pd.DataFrame, reporting_pids: list[int], session_status: list,
                     meta: pd.DataFrame, paths: dict, validation_only: bool = False,
                     schema: pd.DataFrame | None = None) -> pd.DataFrame:
     """Build and write the participant inventory / administrative accounting."""
@@ -264,7 +271,8 @@ def build_inventory(cfg: dict, inv: pd.DataFrame, reporting_pids: list[int], pro
     valid_pids = set()
     if validation_only and schema is not None and len(schema):
         valid_pids = set(schema.loc[schema.validation_status == "ok", "participant_id"].dropna().astype(int))
-    part_inv = build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta, cfg["status_map"], pfs,
+    status_map = cfg.get("status_map") or DEFAULT_STATUS_MAP  # studies may omit metadata/status mapping
+    part_inv = build_participant_inventory(cfg, inv, reporting_pids, session_status, meta, status_map, pfs,
                                            validation_only=validation_only, valid_pids=valid_pids)
     part_inv.to_csv(paths["inventory"] / "requested_participants.csv", index=False)
     admin = part_inv[part_inv.final_participant_status.str.startswith("administrative_no_data")]
@@ -347,29 +355,34 @@ def run_pipeline(opts: RunOptions) -> RunResult:
     """
     cfg = load_and_validate_config(opts)
     requested = expand_pid_spec(cfg["participants"]["include"])
+    excluded = expand_pid_spec(cfg["participants"].get("exclude", []) or [])
     trials = list(cfg["trials"]["expected_indices"])
+    disc_mode = cfg["participants"].get("discovery_mode", "requested_plus_discovered")
 
-    # Discover first so the run label can reflect the actual (possibly discovered) scope.
-    tmp_log = CollectingLogger(None)
-    inv_preview = apply_scope(discover_files(cfg, tmp_log), cfg, requested, trials, discover_all=opts.discover_all)
-    discovered = sorted(set(inv_preview.loc[inv_preview.in_scope, "participant_id"].dropna().astype(int))) if not inv_preview.empty else []
-    reporting_pids = sorted(set(requested) | set(discovered)) if opts.discover_all else requested
+    # Single discovery pass; one participant population drives both processing and reporting.
+    pre_log = CollectingLogger(None)
+    inv = discover_files(cfg, pre_log)
+    scope = resolve_participant_scope(requested, discovered_pids(inv), excluded, disc_mode, opts.discover_all)
+    reporting_pids = scope["reporting_pids"]
+    inv = apply_scope(inv, scope["processing_pids"], trials)
 
     label = scope_run_label(cfg["outputs"].get("run_label", cfg["study"]["id"]), reporting_pids, opts.discover_all)
     paths = make_run_dir(cfg, run_label=label, run_id=opts.run_id, overwrite=opts.overwrite)
     log = CollectingLogger(paths["logs"] / "run.log")
     run_start = datetime.now().isoformat()
-    log.info("run %s (study=%s, reporting %d PIDs)", paths["run_id"], cfg["study"]["id"], len(reporting_pids))
+    log.info("run %s (study=%s, mode=%s, reporting %d PIDs)", paths["run_id"], cfg["study"]["id"],
+             scope["effective_discovery_mode"], len(reporting_pids))
     write_config_snapshot(cfg, paths)
 
     msrc, meta = resolve_run_metadata(cfg, paths, log, opts)
-    inv, process = discover_sessions(cfg, log, requested, trials, opts.discover_all, paths)
+    process = write_discovery_outputs(inv, log, paths)
     schema = validate_sessions(process, cfg, paths)
 
-    # Integrity: hash the exact source files we will read + the config, before processing.
+    # Integrity hashing is optional (integrity.hash_sources).
+    do_hash = bool(cfg.get("integrity", {}).get("hash_sources", True))
     source_files = list(process.absolute_path) if len(process) else []
     config_files = _config_files(cfg)
-    before_hashes = integrity.snapshot(source_files, config_files)
+    before_hashes = integrity.snapshot(source_files, config_files) if do_hash else None
 
     gen_static = (not opts.validate_only) and any(cfg["outputs"].get(f) for f in ("png", "svg", "pdf"))
     gen_html = (not opts.validate_only) and bool(cfg["outputs"].get("html"))
@@ -381,12 +394,13 @@ def run_pipeline(opts: RunOptions) -> RunResult:
 
     sel_df, blk_df, pw_df = write_window_and_target_outputs(agg, paths)
     diag = write_diagnostics(agg, paths)
-    part_inv = build_inventory(cfg, inv, reporting_pids, agg["processed_pids"], meta, paths,
+    part_inv = build_inventory(cfg, inv, reporting_pids, agg["status"], meta, paths,
                                validation_only=opts.validate_only, schema=schema)
 
     if sel_df is not None:
         su, rev = write_summaries_and_review(sel_df, blk_df, pw_df, part_inv, cfg, paths)
-        write_excel(sel_df, blk_df, pw_df, part_inv, schema, diag, su, rev, cfg, paths, paths["run_id"], msrc, log)
+        if cfg["outputs"].get("xlsx", True):
+            write_excel(sel_df, blk_df, pw_df, part_inv, schema, diag, su, rev, cfg, paths, paths["run_id"], msrc, log)
         if gen_static or gen_html:
             try:
                 visualization.aggregate_plots(sel_df, blk_df, pw_df, cfg, paths)
@@ -397,11 +411,12 @@ def run_pipeline(opts: RunOptions) -> RunResult:
     pd.DataFrame(log.warnings).to_csv(paths["logs"] / "warnings.csv", index=False)
     pd.DataFrame(log.errors).to_csv(paths["logs"] / "errors.csv", index=False)
 
-    sources_unmodified = write_integrity(before_hashes, source_files, config_files, paths)
+    sources_unmodified = write_integrity(before_hashes, source_files, config_files, paths) if do_hash else "not_checked"
     processed = len(sel_df) if sel_df is not None else 0
     manifest = {"run_id": paths["run_id"], "run_start": run_start, "run_end": datetime.now().isoformat(),
                 "study": cfg["study"]["id"], "python_version": sys.version.split()[0], "git": _git_info(),
-                "reporting_pids": reporting_pids, "requested_pids": requested, "discover_all": opts.discover_all,
+                "reporting_pids": reporting_pids, "requested_pids": requested, "excluded_pids": excluded,
+                "effective_discovery_mode": scope["effective_discovery_mode"], "discover_all": opts.discover_all,
                 "calibration_search": cfg["calibration_search"], "score_weights": cfg["window_quality"]["scoring"],
                 "metadata_source": msrc["source"], "recorded_sessions": len(process), "processed_sessions": processed,
                 "target_order": [t["id"] for t in cfg["target"]["targets"]],
@@ -409,6 +424,7 @@ def run_pipeline(opts: RunOptions) -> RunResult:
                 "coordinate_frame": "CPF-relative gaze-ray points (yaw/pitch primary; depth-scaled x/y/z)"}
     json.dump(manifest, open(paths["manifest"] / "run_manifest.json", "w"), indent=2, default=str)
     log.info("run complete: %d processed sessions (sources_unmodified=%s)", processed, sources_unmodified)
+    log.close()  # release run.log so a later --overwrite of this run dir can delete it (Windows)
 
     return RunResult(run_id=paths["run_id"], run_root=str(paths["run_root"]), recorded_sessions=len(process),
                      processed_sessions=processed, reporting_pids=reporting_pids,
