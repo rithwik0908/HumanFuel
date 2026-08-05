@@ -9,4 +9,4 @@ Public entry points:
     from aria_rig_calibration.pipeline import run_pipeline
     from aria_rig_calibration.models import RunOptions
 """
-__version__ = "1.1.0"
+__version__ = "1.1.1"
