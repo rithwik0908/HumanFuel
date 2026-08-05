@@ -27,3 +27,11 @@ class CollectingLogger:
 
     def error(self, msg, *a):
         self._log.error(msg, *a); self.errors.append({"message": (msg % a) if a else msg})
+
+    def close(self):
+        """Close and detach handlers so the log file is released (needed before deleting the run dir)."""
+        for h in list(self._log.handlers):
+            try:
+                h.close()
+            finally:
+                self._log.removeHandler(h)
