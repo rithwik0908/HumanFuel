@@ -90,16 +90,22 @@ Required gaze columns (resolved from configurable candidates): a timestamp
 - `metadata/`, `logs/`. See [docs/data_dictionary.md](docs/data_dictionary.md).
 
 ## Quality-control interpretation
-Each analysed session is given a human-readable quality outcome (the machine-readable values in
-parentheses appear in the output files and the data dictionary for backward compatibility):
+Sessions with a selected window carry a human-readable quality outcome in `windows/selected_windows.csv`
+(machine value of `exploratory_result` in parentheses):
 - **Clear** — a distinct calibration window was found (`selected_clear`, High confidence).
 - **Review recommended** — a window was chosen but a QC note was raised (`selected_with_qc_warning`).
 - **Similar candidate windows** — the timing is ambiguous; check the candidate-score plot
   (`multiple_similar_windows`).
 - **Weak target separation** — the target clusters are close together (`weak_target_separation`).
 - **Insufficient data** — sparse/short data in a block (`insufficient_samples`).
-- **Administrative no data** — no recording exists; not an analysis failure (`administrative_no_data`;
-  see the inventory). Details in [docs/manual_review_guide.md](docs/manual_review_guide.md).
+
+Sessions **without** a selected window are not in `selected_windows.csv`:
+- **No valid window** — no complete window (e.g. the recording is shorter than the window): recorded in
+  `logs/session_status.csv` as `no_window` (reason `insufficient_duration` or `no_valid_gaze`).
+- **Administrative no data** — no recording exists; not an analysis failure: recorded in
+  `inventory/requested_participants.csv` and `inventory/administrative_no_data.csv`.
+
+Details in [docs/manual_review_guide.md](docs/manual_review_guide.md).
 
 ## Coordinate-frame note
 `x/y/z` are **CPF-relative gaze-ray points** (yaw/pitch scaled by depth). Depth participates in the

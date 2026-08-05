@@ -6,8 +6,8 @@ Compute SHA-256 hashes of the selected source gaze files and the study configura
 *before* processing and again *after*, then compare. This lets the run manifest make a **verified**
 claim that the toolkit did not modify its inputs, rather than an unchecked assertion.
 
-We only hash files the toolkit actually reads; we make no claims about unrelated trees (e.g. an R
-toolkit or a classification pipeline) unless their paths are passed in and hashed.
+We only hash files the toolkit actually reads; we make no claims about unrelated files unless their
+paths are passed in and hashed.
 """
 from __future__ import annotations
 

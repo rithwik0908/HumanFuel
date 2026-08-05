@@ -12,7 +12,13 @@
 | `avg_dispersion` | Mean of the block dispersions. |
 | `confidence` | `High` / `Medium` / `Low`. |
 | `needs_review` | `Yes` / `No`. |
-| `exploratory_result` | `selected_clear`, `selected_with_qc_warning`, `multiple_similar_windows`, `weak_target_separation`, `insufficient_samples`, `no_valid_window`, `administrative_no_data`. |
+| `exploratory_result` | `selected_clear`, `selected_with_qc_warning`, `multiple_similar_windows`, `weak_target_separation`, `insufficient_samples`. |
+
+`selected_windows.csv` contains only sessions for which a window was selected. Sessions with **no
+selected window** are recorded in `logs/session_status.csv` (`no_window` with reason
+`insufficient_duration` or `no_valid_gaze`), and participants with **no recording** appear in
+`inventory/requested_participants.csv` and `inventory/administrative_no_data.csv`
+(`administrative_no_data_*`) — not in `selected_windows.csv`.
 | `sequence_number`, `lod` | Non-identifying metadata (Williams Sequence, per-trial LOD), if enabled. |
 | `notes` | QC review notes (analytic; not personal data). |
 

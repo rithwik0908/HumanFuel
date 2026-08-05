@@ -63,7 +63,24 @@ jobs:
           assert not (vo / "windows" / "selected_windows.csv").is_file(), "validation-only wrote selected windows"
           inv = pd.read_csv(vo / "inventory" / "requested_participants.csv")
           assert (inv.final_participant_status == "validation_only").any(), "expected validation_only status"
-          print("synthetic full + validation-only OK")
+
+          # Empty data root: must not crash; produces a manifest and administrative inventory.
+          empty = Path(tempfile.mkdtemp()) / "empty"
+          empty.mkdir()
+          er = Path(tempfile.mkdtemp()) / "er"
+          subprocess.run([sys.executable, "-m", "aria_rig_calibration.cli",
+                          "--study-config", str(EXAMPLE_CONFIG), "--data-root", str(empty),
+                          "--output-root", str(er), "--metadata-mode", "none", "--pids", "1"], check=True)
+          assert (list(er.glob("run_*"))[0] / "manifest" / "run_manifest.json").is_file()
+
+          # Example study (three targets, metadata disabled): must run without a KeyError.
+          example_cfg = "studies/example_study/study_config.yml"
+          ex = Path(tempfile.mkdtemp()) / "ex"
+          subprocess.run([sys.executable, "-m", "aria_rig_calibration.cli",
+                          "--study-config", example_cfg, "--data-root", str(data),
+                          "--output-root", str(ex), "--metadata-mode", "none", "--discover-all"], check=True)
+          assert (list(ex.glob("run_*"))[0] / "windows" / "selected_windows.csv").is_file()
+          print("synthetic full + validation-only + empty-root + example-study OK")
           PY
 
       - name: Upload logs on failure

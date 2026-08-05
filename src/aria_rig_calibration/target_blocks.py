@@ -8,7 +8,7 @@ yaw/pitch angular space (the primary interpretation) and in the CPF gaze-ray x/y
 pairwise separation between every pair of targets.
 
 The analysis is generic in the number of targets (``N >= 2``); pairwise combinations are enumerated
-with :func:`itertools.combinations`. For ``N = 3`` the outputs match the original implementation.
+with :func:`itertools.combinations`, and are unchanged for the three-target configuration.
 """
 from __future__ import annotations
 

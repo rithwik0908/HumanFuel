@@ -13,9 +13,12 @@ Each run writes `review/manual_review_manifest.csv` listing every session whose 
 - **`weak_target_separation`** — the three centroids are close in gaze space; verify the participant
   actually fixated three distinct targets.
 - **`insufficient_samples`** — sparse/short data in one or more blocks.
-- **`no_valid_window`** — no usable 15 s window; the recording may lack the calibration sequence or be
-  too short.
-- **`administrative_no_data`** — not a scientific failure; no recording exists (see the inventory).
+
+Two outcomes are **not** in `selected_windows.csv`:
+- **No valid window** — no complete window (e.g. the recording is shorter than the window). Recorded in
+  `logs/session_status.csv` as `no_window`.
+- **Administrative no data** — no recording exists; not a scientific failure. Recorded in
+  `inventory/requested_participants.csv` and `inventory/administrative_no_data.csv`.
 
 ## How to review
 1. Open `plots/png/<pid>_trial<t>_*.png` (yaw/pitch timeline with the selected window, target scatter,

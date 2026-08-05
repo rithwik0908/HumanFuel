@@ -34,6 +34,6 @@ its merged-config snapshot and source-file hashes, so results are reproducible a
 unmodified.
 
 ## Scope
-The toolkit does not classify the full recording into screen regions and is independent of any
-separate gaze-screen classification pipeline. See [calibration_method.md](calibration_method.md) and
-[coordinate_frames.md](coordinate_frames.md).
+The toolkit locates the calibration interval and characterises the targets in gaze space; it does not
+classify the full recording into screen regions. See [calibration_method.md](calibration_method.md)
+and [coordinate_frames.md](coordinate_frames.md).

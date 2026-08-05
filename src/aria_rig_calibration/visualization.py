@@ -116,7 +116,7 @@ def aggregate_plots(selected, blocks, pairwise, cfg: dict, paths: dict) -> None:
 
     fig, ax = plt.subplots(figsize=(9, 5.5))
     det.exploratory_result.value_counts().plot.barh(ax=ax, color="slateblue")
-    ax.set_title("Exploratory result by session")
+    ax.set_title("Quality-control outcome by session")
     ax.set_xlabel("Sessions")
     _save_static(fig, "agg_qc_status", cfg, paths)
 

@@ -40,5 +40,5 @@ git log --all --name-only --pretty=format: | Sort-Object -Unique
 ```
 This repository's history was reviewed and contains only source code, configuration, docs, and tests
 (no raw data or tracker workbooks). If a future commit introduces private data, remove it from history
-with `git filter-repo` (preferred) or the BFG Repo-Cleaner, then force-update with supervisor
+with `git filter-repo` (preferred) or the BFG Repo-Cleaner, then force-update with project-owner
 approval — do not simply delete the file in a new commit, as it remains in history.
