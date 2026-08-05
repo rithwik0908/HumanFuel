@@ -1,0 +1,9 @@
+# Maps tracker Status values -> administrative status. Only explicit tracker values are used;
+# an empty folder with no tracker status becomes administrative_no_data_status_unknown (never guessed).
+participant_status_mapping:
+  cancelled:  administrative_no_data_cancelled
+  rescheduled: administrative_no_data_rescheduled
+  "not collected": administrative_no_data_not_collected
+  pending:    administrative_no_data_pending_upload
+  completed:  completed
+  default_when_no_data: administrative_no_data_status_unknown

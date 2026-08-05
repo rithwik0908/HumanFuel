@@ -1,0 +1,19 @@
+# So Pedestrian calibration-target definitions. The engine works with target_1/target_2/target_3
+# (temporal order of the three window chunks); this file maps them to the confirmed So Pedestrian
+# identities. Confirmed order: triview -> dashboard -> iPad.
+calibration_targets:
+  expected_count: 3
+  require_expected_order: true
+  targets:
+    - order: 1
+      id: triview
+      display_name: "Triview / Road"
+      color: "#d95f5f"
+    - order: 2
+      id: dashboard
+      display_name: "Dashboard"
+      color: "#4c78a8"
+    - order: 3
+      id: ipad
+      display_name: "iPad"
+      color: "#59a14f"

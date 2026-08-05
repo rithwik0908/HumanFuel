@@ -1,0 +1,15 @@
+# Maps Participant Tracker columns -> normalized metadata. Header matching is case-insensitive and
+# punctuation-insensitive (so "Williams' Sequence" matches). ONLY these fields are extracted; names,
+# emails, phone, payment, gift-card, and scheduling notes are never read.
+metadata_mapping:
+  candidate_sheets_contain: ["pid"]          # any sheet whose headers include PID + trial columns
+  participant_id_column: "PID"
+  sequence_column: "Williams' Sequence"
+  status_column: "Status"
+  trial_lod_columns:
+    0: "Trial 1"
+    1: "Trial 2"
+    2: "Trial 3"
+    3: "Trial 4"
+    4: "Trial 5"
+  forbidden_tokens: ["name","email","phone","claim","serial","payment","gift","note","address","pronoun"]

@@ -1,0 +1,8 @@
+# Metadata is disabled for this example study (metadata.enabled: false in study_config.yml).
+# If you enable it, map your tracker columns here like the So Pedestrian profile.
+metadata_mapping:
+  participant_id_column: "PID"
+  sequence_column: null
+  status_column: "Status"
+  trial_lod_columns: {}
+  forbidden_tokens: ["name","email","phone","payment","note"]

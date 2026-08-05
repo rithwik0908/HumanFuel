@@ -1,0 +1,19 @@
+# Generated run outputs never live in the source tree
+/aria_rig_calibration_results_python/
+*_results/
+*_results_python/
+# Python / env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+# scratch
+*.tmp
+tests/_tmp/
+tests/fixtures/*.csv

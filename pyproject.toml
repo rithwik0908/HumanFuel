@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aria-rig-calibration"
+version = "1.0.0"
+description = "Project Aria rig-calibration exploratory-analysis toolkit (parity-validated Python port of the verified R toolkit)."
+requires-python = ">=3.11"
+dependencies = [
+  "pandas>=2.0", "numpy>=1.24", "scipy>=1.10", "matplotlib>=3.7",
+  "plotly>=5.0", "pyyaml>=6.0", "openpyxl>=3.1", "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov>=4"]
+aria = ["projectaria-tools"]   # optional VRS/video helpers; NOT required for CSV analysis
+
+[project.scripts]
+aria-rig-calibration = "aria_rig_calibration.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
