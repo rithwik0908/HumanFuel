@@ -3,8 +3,34 @@ import numpy as np
 import pandas as pd
 
 from aria_rig_calibration.discovery import parse_pid_trial, reconcile
-from aria_rig_calibration.gaze import infer_time_unit, load_gaze
+from aria_rig_calibration.gaze import infer_time_unit, load_gaze, validate_schema
 from tests.conftest import synth_gaze_frame
+
+
+def _schema(tmp_path, cfg, frame):
+    p = tmp_path / "g.csv"
+    frame.to_csv(p, index=False)
+    return validate_schema(str(p), {"participant_id": 1, "trial_index": 0}, cfg)
+
+
+def test_schema_reports_left_only(tmp_path, cfg):
+    s = _schema(tmp_path, cfg, synth_gaze_frame().drop(columns=["right_yaw_rads_cpf"]))
+    assert s["resolved_left_yaw"] == "left_yaw_rads_cpf" and s["resolved_right_yaw"] is None
+
+
+def test_schema_reports_right_only(tmp_path, cfg):
+    s = _schema(tmp_path, cfg, synth_gaze_frame().drop(columns=["left_yaw_rads_cpf"]))
+    assert s["resolved_left_yaw"] is None and s["resolved_right_yaw"] == "right_yaw_rads_cpf"  # not mislabelled left
+
+
+def test_schema_reports_both(tmp_path, cfg):
+    s = _schema(tmp_path, cfg, synth_gaze_frame())
+    assert s["resolved_left_yaw"] == "left_yaw_rads_cpf" and s["resolved_right_yaw"] == "right_yaw_rads_cpf"
+
+
+def test_schema_reports_neither(tmp_path, cfg):
+    s = _schema(tmp_path, cfg, synth_gaze_frame().drop(columns=["left_yaw_rads_cpf", "right_yaw_rads_cpf"]))
+    assert s["resolved_left_yaw"] is None and s["resolved_right_yaw"] is None and s["validation_status"] != "ok"
 
 
 def test_parse_layouts():

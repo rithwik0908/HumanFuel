@@ -1,13 +1,15 @@
 # Metadata integration
 
 ## Source
-So Pedestrian metadata comes from the **Participant Tracker** (`Participant Tracker-So
-Pedestrian.xlsx`). The toolkit resolves it in two steps (`metadata.py`):
-1. **Online** export of the tracker sheet (if configured). The response is validated by magic bytes —
-   a real `.xlsx` starts with `PK`; a 401/HTML login page fails the check.
-2. **Local `.xlsx` fallback** when the online export is unavailable or invalid.
+So Pedestrian metadata comes from the Participant Tracker workbook. The toolkit resolves it according
+to `--metadata-mode` (`metadata.py`):
+1. **Online** export of the tracker sheet (if a document id is configured). The response is validated
+   by magic bytes — a real `.xlsx` starts with `PK`; a 401/HTML login page fails the check.
+2. **Local `.xlsx`** file.
 
-`--offline-metadata` forces the local path; `--refresh-metadata` prefers a fresh online pull.
+Modes: `--metadata-mode auto` (online then local), `online` (require online), `local` (require the
+local file), `none` (disable metadata). `--metadata-file` sets the local workbook path;
+`--retain-metadata-snapshot` keeps the downloaded workbook (off by default, with a privacy warning).
 
 ## What is used
 Only **non-identifying** fields: **Williams Sequence** (counterbalancing order), per-trial **LOD**,
@@ -15,8 +17,8 @@ and administrative **Status**. These are attached for context and reporting.
 
 ## What metadata must NOT do
 Metadata **never** affects scoring, window selection, or QC. The engine computes the calibration
-window from gaze alone; metadata is joined afterward for labeling. This is enforced by
-`test_no_classification_dependency` and by the fact that `scan_windows` receives no metadata.
+window from gaze alone; metadata is joined afterward for labelling — `scan_windows` receives no
+metadata.
 
 ## Administrative status (never guessed)
 An empty/absent participant folder is an **administrative** case, not a scientific failure. Status is

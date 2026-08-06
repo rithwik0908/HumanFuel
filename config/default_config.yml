@@ -70,7 +70,7 @@ metadata:
 
 outputs:
   root: "${ARIA_OUTPUT_ROOT}"              # resolved from the environment or --output-root
-  csv: true
+  # CSV outputs are always written (core output). xlsx/png/svg/pdf/html toggle independently.
   xlsx: true
   png: true
   svg: true

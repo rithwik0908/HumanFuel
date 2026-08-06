@@ -29,5 +29,4 @@ aria-rig-calibration --study-config $S --pids 35 --metadata-mode none --data-roo
 ## Tests
 ```powershell
 pytest                    # portable tests
-pytest -m local_parity    # optional; needs ARIA_PARITY_DATA_ROOT / ARIA_R_REFERENCE_RUN
 ```

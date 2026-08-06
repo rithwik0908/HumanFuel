@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aria-rig-calibration"
-version = "1.1.0"
+version = "1.1.1"
 description = "Configurable Project Aria rig-calibration analysis toolkit."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,10 +36,8 @@ aria_rig_calibration = ["py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "src"]
-addopts = "-q -m 'not local_parity and not network'"
+addopts = "-q"
 markers = [
   "unit: fast, isolated unit tests",
   "integration: synthetic end-to-end tests",
-  "local_parity: opt-in tests requiring the private dataset / reference runs",
-  "network: tests requiring network access",
 ]

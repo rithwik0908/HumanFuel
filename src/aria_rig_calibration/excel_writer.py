@@ -5,7 +5,7 @@ Role in the pipeline
 Write a formatted multi-sheet workbook summarising the run, then validate it structurally against the
 source DataFrames. Validation checks sheet presence, sheet order, row/column counts, header names and
 order, key totals for the selected-windows sheet, and the absence of forbidden personal columns.
-It reports structural parity, not a full cell-by-cell value comparison (documented in the report).
+It reports structural equivalence, not a full cell-by-cell value comparison (documented in the report).
 No personal identifiers are written.
 """
 from __future__ import annotations
@@ -105,7 +105,15 @@ def validate_workbook(dest: Path, sheet_map: dict, out_csv: Path, log,
             headers = [] if first_row == ["no rows"] else [str(h) for h in first_row if h is not None]
             leaked = [h for h in headers if h.lower() not in SAFE_ANALYTIC_COLUMNS and any(t in h.lower() for t in forbidden_tokens)]
             if src_rows == 0:
-                status = "empty_ok"
+                # An expected-empty sheet must contain exactly the "no rows" placeholder in A1.
+                if (ws.max_row or 0) > 1:
+                    status, detail = "row_mismatch", "empty source but workbook has data rows"
+                elif (ws.max_column or 0) > 1:
+                    status, detail = "column_mismatch", "empty source but workbook has extra columns"
+                elif first_row != ["no rows"]:
+                    status, detail = "unexpected_content", f"expected placeholder, found {first_row}"
+                else:
+                    status = "empty_ok"
             elif leaked:
                 status, detail = "privacy_violation", f"forbidden columns: {leaked}"
             elif xrows != src_rows:
@@ -125,6 +133,7 @@ def validate_workbook(dest: Path, sheet_map: dict, out_csv: Path, log,
                     status, detail = "key_total_mismatch", f"score total {xls_total} vs {src_total}"
         rows.append({"sheet": name, "expected_pos": pos, "csv_rows": src_rows,
                      "csv_cols": len(src_cols), "status": status, "detail": detail})
+    wb.close()  # release the file handle (read_only mode keeps it open) so the run dir can be deleted
     v = pd.DataFrame(rows)
     v.to_csv(out_csv, index=False)
     n_ok = int(v.status.isin(["pass", "empty_ok"]).sum())
@@ -132,7 +141,7 @@ def validate_workbook(dest: Path, sheet_map: dict, out_csv: Path, log,
     if report_md is not None:
         bad = v[~v.status.isin(["pass", "empty_ok"])]
         lines = ["# Excel validation", "",
-                 f"Structural parity check (sheet presence/order, row & column counts, header names & "
+                 f"Structural check (sheet presence/order, row & column counts, header names & "
                  f"order, forbidden-column scan, and the Selected Windows score total). This verifies "
                  f"structure and key totals, not every cell value.", "",
                  f"- Sheets ok: **{n_ok}/{len(v)}**"]

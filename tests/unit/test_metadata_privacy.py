@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from aria_rig_calibration import metadata as md
 from aria_rig_calibration.logging_utils import CollectingLogger
@@ -51,6 +52,55 @@ def test_resolve_local_mode(tmp_path, cfg):
 def test_resolve_none_mode(cfg, tmp_path):
     r = md.resolve_metadata(cfg, tmp_path, CollectingLogger(), mode="none")
     assert r["source"] == "none" and r["workbook"] is None
+
+
+def test_normalize_malformed_raises(tmp_path, cfg):
+    bad = tmp_path / "bad.xlsx"
+    bad.write_text("not really an xlsx")
+    with pytest.raises(md.MetadataError):
+        md.normalize_metadata(str(bad), cfg["metadata_map"], "local", CollectingLogger())
+
+
+def test_explicit_mode_overrides_enabled_false(tmp_path, cfg):
+    # metadata.enabled is false, but an explicit local mode must still resolve (not silently 'none').
+    wb = tmp_path / "t.xlsx"
+    _tracker(wb)
+    cfg2 = dict(cfg)
+    cfg2["metadata"] = {"enabled": False, "local": str(wb), "online": None}
+    r = md.resolve_metadata(cfg2, tmp_path, CollectingLogger(), mode="local")
+    assert r["source"] == "local"
+
+
+def test_auto_respects_enabled_false(tmp_path, cfg):
+    cfg2 = dict(cfg)
+    cfg2["metadata"] = {"enabled": False, "local": None, "online": None}
+    r = md.resolve_metadata(cfg2, tmp_path, CollectingLogger(), mode="auto")
+    assert r["source"] == "none"
+
+
+def test_explicit_online_enabled_false_requires_docid(tmp_path, cfg):
+    cfg2 = dict(cfg)
+    cfg2["metadata"] = {"enabled": False, "online": {"document_id": "${X}"}, "local": None}
+    with pytest.raises(md.MetadataError):
+        md.resolve_metadata(cfg2, tmp_path, CollectingLogger(), mode="online")
+
+
+def test_temp_workbook_deleted_on_exception(tmp_path, cfg, monkeypatch):
+    from aria_rig_calibration import pipeline as pl
+    from aria_rig_calibration.models import RunOptions
+    temp = tmp_path / "download.xlsx"
+    temp.write_bytes(b"PK")
+    paths = {"metadata_snapshot": tmp_path / "snap", "metadata": tmp_path / "meta"}
+    paths["metadata"].mkdir()
+    monkeypatch.setattr(pl, "resolve_metadata",
+                        lambda *a, **k: {"source": "online", "workbook": str(temp), "temp_path": str(temp),
+                                         "online": {}})
+    monkeypatch.setattr(pl, "normalize_metadata",
+                        lambda *a, **k: (_ for _ in ()).throw(md.MetadataError("boom")))
+    opts = RunOptions(study_config="x", metadata_mode="online")
+    with pytest.raises(md.MetadataError):
+        pl.resolve_run_metadata(cfg, paths, CollectingLogger(), opts)
+    assert not temp.exists()          # temp deleted even though normalization raised
 
 
 def test_online_snapshot_temp_deletable(tmp_path, cfg, monkeypatch):

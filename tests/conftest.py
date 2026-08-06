@@ -1,8 +1,7 @@
 """Shared pytest fixtures and synthetic, de-identified data builders.
 
-The default suite uses only synthetic fixtures and never touches the private dataset, the Participant
-Tracker, or the network. Optional parity tests live under ``tests/local_parity`` and are marked
-``local_parity`` (opt-in via ``pytest -m local_parity``).
+The suite uses only synthetic fixtures and never touches a private dataset, a participant tracker, or
+the network.
 """
 from __future__ import annotations
 
@@ -19,6 +18,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from aria_rig_calibration.config import load_study_config  # noqa: E402
 
 EXAMPLE_CONFIG = ROOT / "studies" / "so_pedestrian" / "study_config.example.yml"
+EXAMPLE_STUDY_CONFIG = ROOT / "studies" / "example_study" / "study_config.yml"
 
 
 def synth_gaze_frame(seed: int = 1, holds=((0.0, 0.5, 0.0), (5.0, -0.3, -0.2), (10.0, 0.0, -0.5)),

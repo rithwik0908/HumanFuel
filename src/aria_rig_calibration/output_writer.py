@@ -11,6 +11,7 @@ and denominators without any code change.
 from __future__ import annotations
 
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +23,14 @@ from .metadata import admin_status_for
 SUBDIRS = ["manifest", "manifest/config_snapshot", "metadata_snapshot", "inventory", "validation",
            "windows", "targets", "diagnostics", "metadata", "summaries", "review", "excel",
            "plots/png", "plots/svg", "plots/pdf", "plots/html", "reports", "logs"]
+
+#: Fallback administrative-status mapping for studies that deliberately omit metadata/status mapping.
+DEFAULT_STATUS_MAP = {"cancelled": "administrative_no_data_cancelled",
+                      "rescheduled": "administrative_no_data_rescheduled",
+                      "not collected": "administrative_no_data_not_collected",
+                      "pending": "administrative_no_data_pending_upload",
+                      "completed": "completed",
+                      "default_when_no_data": "administrative_no_data_status_unknown"}
 
 
 def scope_run_label(base_label: str | None, reporting_pids: list[int], discover_all: bool) -> str:
@@ -42,21 +51,41 @@ def scope_run_label(base_label: str | None, reporting_pids: list[int], discover_
     return f"{base}_PID{lo}_to_PID{hi}" if contiguous else f"{base}_{len(reporting_pids)}PIDs"
 
 
+def _safe_delete_run_dir(root: Path, out_root: Path) -> None:
+    """Delete exactly one resolved run directory, refusing anything that isn't a child of out_root.
+
+    Guards against deleting the output root itself, a parent directory, a filesystem root, or an
+    unresolved/empty path.
+    """
+    root_r, out_r = root.resolve(), out_root.resolve()
+    if not root_r.name or root_r == out_r or root_r == Path(root_r.anchor) or len(root_r.parts) <= 1:
+        raise ValueError(f"refusing to delete unsafe run directory: {root_r}")
+    if root_r.parent != out_r:
+        raise ValueError(f"refusing to delete a run directory outside the output root: {root_r}")
+    shutil.rmtree(root_r)
+
+
 def make_run_dir(cfg: dict, run_label: str | None = None, run_id: str | None = None, overwrite: bool = False) -> dict:
     """Create the run directory tree under ``outputs.root`` and return a path map.
+
+    Without ``overwrite`` an existing run directory raises ``FileExistsError``. With ``overwrite`` the
+    exact existing run directory is deleted completely and recreated clean, so no stale windows, plots,
+    Excel files, logs, or summaries survive (see :func:`_safe_delete_run_dir` for the safety guards).
 
     :param cfg: merged config (``outputs.root`` must be resolved).
     :param run_label: label appended to the auto-generated run id.
     :param run_id: explicit run id (skips timestamp generation) when provided.
-    :param overwrite: allow reusing an existing run folder.
-    :return: dict mapping each subdir key (``inventory``, ``windows``, ...) to its Path, plus
-        ``run_root`` and ``run_id``.
+    :param overwrite: replace an existing run folder.
+    :return: dict mapping each subdir key to its Path, plus ``run_root`` and ``run_id``.
     """
     if run_id is None:
         run_id = "run_" + datetime.now().strftime("%Y%m%d_%H%M%S") + (f"_{run_label}" if run_label else "")
-    root = Path(cfg["outputs"]["root"]) / run_id
-    if root.exists() and not overwrite:
-        raise FileExistsError(f"run folder exists (use --overwrite): {root}")
+    out_root = Path(cfg["outputs"]["root"])
+    root = out_root / run_id
+    if root.exists():
+        if not overwrite:
+            raise FileExistsError(f"run folder exists (use --overwrite): {root}")
+        _safe_delete_run_dir(root, out_root)
     for s in SUBDIRS:
         (root / s).mkdir(parents=True, exist_ok=True)
     paths = {s.replace("/", "_"): root / s for s in SUBDIRS}
@@ -92,35 +121,64 @@ def pid_folder_status_factory(cfg: dict, inv: pd.DataFrame):
     return fn
 
 
-def build_participant_inventory(cfg, inv, reporting_pids, processed_pids, meta_tbl, status_map, folder_fn) -> pd.DataFrame:
-    """Build one inventory row per reporting PID (status, discovered/missing trials, admin status).
+def build_participant_inventory(cfg, inv, reporting_pids, session_status, meta_tbl, status_map, folder_fn,
+                                validation_only: bool = False, valid_pids: set | None = None) -> pd.DataFrame:
+    """Build one inventory row per reporting PID from explicit per-session outcomes.
 
-    :param reporting_pids: union of requested and (when discovering) discovered PIDs.
-    :return: DataFrame with a ``final_participant_status`` per participant.
+    Participant status distinguishes schema-invalid data from processing failures using the
+    per-session status rows (``processed`` / ``invalid_data`` / ``processing_failed`` / ``no_window``),
+    not merely the count of processed sessions.
+
+    :param session_status: list of dicts with ``participant_id``, ``trial_index``, ``status``.
+    :param validation_only: when True, analysis was skipped; valid data -> ``validation_only``,
+        schema-invalid data -> ``invalid_data``, no data -> administrative status.
+    :param valid_pids: PIDs with >= 1 schema-valid file (validation-only mode only).
+    :return: DataFrame with ``final_participant_status`` and per-session counts per participant.
     """
     exp = list(cfg["trials"]["expected_indices"])
     n_exp = len(exp)
+    valid_pids = valid_pids or set()
+    status_by_pid: dict[int, list[str]] = {}
+    for r in (session_status or []):
+        status_by_pid.setdefault(int(r["participant_id"]), []).append(r["status"])
     rows = []
     for pid in reporting_pids:
         fs = folder_fn(pid)
         sel = inv[(inv.participant_id == pid) & (inv.in_scope == True)] if not inv.empty else inv  # noqa: E712
         dt = sorted(set(sel.trial_index.dropna().astype(int))) if len(sel) else []
         miss = [t for t in exp if t not in dt]
-        succ = int(np.sum(np.array(processed_pids) == pid))
+        sts = status_by_pid.get(pid, [])
+        n_processed = sts.count("processed")
+        n_invalid = sts.count("invalid_data")
+        n_exc = sts.count("processing_failed")
+        n_no_window = sts.count("no_window")
+        n_schema_valid = n_processed + n_exc + n_no_window
         trk, seqn = None, None
         if meta_tbl is not None and len(meta_tbl) and pid in set(meta_tbl.participant_id):
             mr = meta_tbl[meta_tbl.participant_id == pid].iloc[0]
             trk, seqn = mr.participant_status, mr.sequence_number
         has = fs["gaze_data_found"]
         adm = admin_status_for(trk, has, status_map)
-        final = adm if not has else ("invalid_data" if len(dt) == 0 else "processing_failed" if succ < len(dt)
-                                     else "processed" if succ >= n_exp else "partial_data")
+        if not has:
+            final = adm
+        elif validation_only:
+            final = "validation_only" if pid in valid_pids else "invalid_data"
+        elif len(sts) == 0 or n_schema_valid == 0:
+            final = "invalid_data"                       # data present but nothing schema-valid ran
+        elif n_exc > 0:
+            final = "processing_failed"                  # a schema-valid session raised
+        elif n_processed == 0:
+            final = "no_valid_window"                    # schema-valid but no complete window (e.g. short)
+        else:
+            final = "processed" if n_processed >= n_exp else "partial_data"
         rows.append(dict(participant_id=pid, pid_label=f"PID{pid}", folder_found=fs["folder_found"],
                          folder_empty=fs["empty_folder"], gaze_files_found=has, expected_trials=n_exp,
-                         discovered_trials=len(dt), discovered_trial_indices=",".join(map(str, dt)),
-                         missing_trial_indices=",".join(map(str, miss)), processed_trials=succ,
-                         tracker_status=trk, normalized_admin_status=adm, sequence_number=seqn,
-                         final_participant_status=final))
+                         discovered_sessions=len(dt), discovered_trial_indices=",".join(map(str, dt)),
+                         missing_trial_indices=",".join(map(str, miss)),
+                         schema_valid_sessions=n_schema_valid, schema_invalid_sessions=n_invalid,
+                         processing_failed_sessions=n_exc, no_window_sessions=n_no_window,
+                         processed_trials=n_processed, tracker_status=trk, normalized_admin_status=adm,
+                         sequence_number=seqn, final_participant_status=final))
     return pd.DataFrame(rows)
 
 

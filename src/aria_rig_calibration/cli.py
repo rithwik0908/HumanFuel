@@ -11,6 +11,7 @@ import argparse
 import sys
 
 from .config import ConfigError
+from .metadata import MetadataError
 from .models import RunOptions
 from .pipeline import run_pipeline
 
@@ -58,6 +59,9 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         print(f"Configuration error:\n{e}", file=sys.stderr)
         return 2
+    except MetadataError as e:
+        print(f"Metadata error: {e}", file=sys.stderr)
+        return 3
     print(f"RUN_ID={result.run_id}")
     print(f"RUN_ROOT={result.run_root}")
     print(f"Processed {result.processed_sessions}/{result.recorded_sessions} sessions; "

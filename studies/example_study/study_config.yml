@@ -7,6 +7,7 @@
 extends: "../../config/default_config.yml"
 target_config: "target_config.yml"
 metadata_mapping: "metadata_mapping.yml"
+participant_status_mapping: "participant_status_mapping.yml"
 
 study:
   id: example_study

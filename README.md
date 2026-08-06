@@ -3,10 +3,6 @@
 A configurable Python toolkit that **locates the rig-calibration interval** in Project Aria eye-gaze
 recordings and **characterises where each configured calibration target appears in gaze space**.
 
-> Scope note: this toolkit identifies the calibration interval and characterises the gaze-space
-> location of the configured targets. It does not classify the full recording into screen regions and
-> makes no calibration-accuracy claim without independent video/log validation.
-
 ## Purpose
 For each participant/trial gaze recording, the toolkit finds the short interval in which the
 participant fixates a sequence of calibration targets, then reports where each target sits in gaze
@@ -69,6 +65,11 @@ aria-rig-calibration --study-config $S --pids 35 --validate-only     # discovery
 ```
 `python -m aria_rig_calibration.cli ...` and `python scripts/run_analysis.py ...` are equivalent.
 
+**Validation-only runs** (`--validate-only`) perform discovery and schema validation but skip the
+calibration analysis: no selected-window outputs are written, participants with valid discovered data
+are marked `validation_only`, schema-invalid data is marked `invalid_data`, and participants with no
+recording keep their administrative status.
+
 ## Inputs
 Required gaze columns (resolved from configurable candidates): a timestamp
 (`tracking_timestamp_us`/…), `left_yaw_rads_cpf`, `right_yaw_rads_cpf`, `pitch_rads_cpf`. Optional:
@@ -88,15 +89,23 @@ Required gaze columns (resolved from configurable candidates): a timestamp
 - `manifest/` — run manifest, merged-config snapshot, and source-integrity hashes.
 - `metadata/`, `logs/`. See [docs/data_dictionary.md](docs/data_dictionary.md).
 
-## Interpreting QC (`exploratory_result` / confidence)
-- **Clear** (`selected_clear`, High) — a distinct calibration window was found.
-- **Review recommended** (`selected_with_qc_warning`) — chosen, but QC raised a note.
-- **Similar candidate windows** (`multiple_similar_windows`) — the timing is ambiguous; check the
-  candidate-score plot.
-- **Weak target separation** (`weak_target_separation`) — target clusters are close together.
-- **Insufficient data** (`insufficient_samples`) — sparse/short data in a block.
-- **Administrative no data** (`administrative_no_data`) — no recording exists (not a scientific
-  failure; see the inventory). Details in [docs/manual_review_guide.md](docs/manual_review_guide.md).
+## Quality-control interpretation
+Sessions with a selected window carry a human-readable quality outcome in `windows/selected_windows.csv`
+(machine value of `exploratory_result` in parentheses):
+- **Clear** — a distinct calibration window was found (`selected_clear`, High confidence).
+- **Review recommended** — a window was chosen but a QC note was raised (`selected_with_qc_warning`).
+- **Similar candidate windows** — the timing is ambiguous; check the candidate-score plot
+  (`multiple_similar_windows`).
+- **Weak target separation** — the target clusters are close together (`weak_target_separation`).
+- **Insufficient data** — sparse/short data in a block (`insufficient_samples`).
+
+Sessions **without** a selected window are not in `selected_windows.csv`:
+- **No valid window** — no complete window (e.g. the recording is shorter than the window): recorded in
+  `logs/session_status.csv` as `no_window` (reason `insufficient_duration` or `no_valid_gaze`).
+- **Administrative no data** — no recording exists; not an analysis failure: recorded in
+  `inventory/requested_participants.csv` and `inventory/administrative_no_data.csv`.
+
+Details in [docs/manual_review_guide.md](docs/manual_review_guide.md).
 
 ## Coordinate-frame note
 `x/y/z` are **CPF-relative gaze-ray points** (yaw/pitch scaled by depth). Depth participates in the
@@ -116,13 +125,11 @@ outputs. See [docs/privacy.md](docs/privacy.md).
 
 ## Testing
 ```bash
-pytest                     # portable unit + integration tests (no private data, no network)
-pytest -m local_parity     # optional; requires the private dataset env vars
+pytest     # portable unit + integration tests (no private data, no network)
 ```
 
 ## Troubleshooting
 See [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Citation / acknowledgements
-Please confirm authorship, citation, and licensing with the project supervisors before public
-distribution. Licensing status: see [LICENSE_PENDING.md](LICENSE_PENDING.md).
+Please confirm citation and acknowledgement details with the project maintainers.

@@ -30,28 +30,57 @@ jobs:
       - name: Run portable tests
         run: pytest -v --cov=aria_rig_calibration --cov-report=term-missing
 
-      - name: Synthetic end-to-end CLI run
+      - name: Synthetic end-to-end CLI run (full + validation-only)
         shell: bash
         run: |
           python - <<'PY'
           import subprocess, sys, tempfile
           from pathlib import Path
+          import pandas as pd
           sys.path.insert(0, ".")
           from tests.conftest import write_session, EXAMPLE_CONFIG
           data = Path(tempfile.mkdtemp()) / "data"
           for ti in (0, 1, 2):
               write_session(data, 1, ti, seed=10 + ti)
-          out = Path(tempfile.mkdtemp()) / "out"
-          subprocess.run([sys.executable, "-m", "aria_rig_calibration.cli",
-                          "--study-config", str(EXAMPLE_CONFIG), "--data-root", str(data),
-                          "--output-root", str(out), "--metadata-mode", "none",
-                          "--pids", "1", "--trials", "0-2"], check=True)
-          runs = list(out.glob("run_*"))
-          assert runs, "no run folder produced"
+
+          def run(out, *extra):
+              subprocess.run([sys.executable, "-m", "aria_rig_calibration.cli",
+                              "--study-config", str(EXAMPLE_CONFIG), "--data-root", str(data),
+                              "--output-root", str(out), "--metadata-mode", "none",
+                              "--pids", "1", "--trials", "0-2", *extra], check=True)
+              runs = list(Path(out).glob("run_*"))
+              assert runs, "no run folder produced"
+              return runs[0]
+
+          # Full analysis: selected windows, Excel, manifest, inventory must exist.
+          full = run(Path(tempfile.mkdtemp()) / "full")
           for rel in ["windows/selected_windows.csv", "excel/aria_rig_calibration_analysis.xlsx",
                       "manifest/run_manifest.json", "inventory/requested_participants.csv"]:
-              assert (runs[0] / rel).is_file(), f"missing {rel}"
-          print("synthetic end-to-end OK:", runs[0].name)
+              assert (full / rel).is_file(), f"missing {rel}"
+
+          # Validation-only: no selected-window outputs; participant marked validation_only.
+          vo = run(Path(tempfile.mkdtemp()) / "vo", "--validate-only")
+          assert not (vo / "windows" / "selected_windows.csv").is_file(), "validation-only wrote selected windows"
+          inv = pd.read_csv(vo / "inventory" / "requested_participants.csv")
+          assert (inv.final_participant_status == "validation_only").any(), "expected validation_only status"
+
+          # Empty data root: must not crash; produces a manifest and administrative inventory.
+          empty = Path(tempfile.mkdtemp()) / "empty"
+          empty.mkdir()
+          er = Path(tempfile.mkdtemp()) / "er"
+          subprocess.run([sys.executable, "-m", "aria_rig_calibration.cli",
+                          "--study-config", str(EXAMPLE_CONFIG), "--data-root", str(empty),
+                          "--output-root", str(er), "--metadata-mode", "none", "--pids", "1"], check=True)
+          assert (list(er.glob("run_*"))[0] / "manifest" / "run_manifest.json").is_file()
+
+          # Example study (three targets, metadata disabled): must run without a KeyError.
+          example_cfg = "studies/example_study/study_config.yml"
+          ex = Path(tempfile.mkdtemp()) / "ex"
+          subprocess.run([sys.executable, "-m", "aria_rig_calibration.cli",
+                          "--study-config", example_cfg, "--data-root", str(data),
+                          "--output-root", str(ex), "--metadata-mode", "none", "--discover-all"], check=True)
+          assert (list(ex.glob("run_*"))[0] / "windows" / "selected_windows.csv").is_file()
+          print("synthetic full + validation-only + empty-root + example-study OK")
           PY
 
       - name: Upload logs on failure

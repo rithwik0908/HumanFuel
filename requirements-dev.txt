@@ -1,12 +1,3 @@
-# Runtime
-pandas>=2.0
-numpy>=1.24
-scipy>=1.10
-matplotlib>=3.7
-plotly>=5.0
-pyyaml>=6.0
-openpyxl>=3.1
-jinja2>=3.1
-# Dev / test
-pytest>=7
-pytest-cov>=4
+# Development install: the package plus its dev and reports extras (kept in sync with pyproject.toml).
+# Runtime deps (pandas, numpy, matplotlib, pyyaml, openpyxl) and optional plotly come from the package.
+-e .[dev,reports]

@@ -74,11 +74,17 @@ def scan_windows(work: pd.DataFrame, cfg: dict) -> dict:
     valid = np.isfinite(work["rel_sec"]) & np.isfinite(work["x"]) & np.isfinite(work["y"]) & np.isfinite(work["z"])
     d = work[valid].reset_index(drop=True)
     if len(d) == 0:
-        return {"all_windows": pd.DataFrame(), "selected": None, "review": review_status(None, np.nan, cfg), "file_dispersion": np.nan}
+        return {"all_windows": pd.DataFrame(), "selected": None, "review": review_status(None, np.nan, cfg),
+                "file_dispersion": np.nan, "reason": "no_valid_gaze"}
 
     xyz = d[["x", "y", "z"]].to_numpy()
     rel = d["rel_sec"].to_numpy()
     max_t = float(rel.max())
+    # A complete candidate window must fit inside the recording. If the recording is shorter than one
+    # window, scan nothing and report insufficient duration rather than scoring a partial window.
+    if max_t < win:
+        return {"all_windows": pd.DataFrame(), "selected": None, "review": review_status(None, np.nan, cfg),
+                "file_dispersion": np.nan, "reason": "insufficient_duration"}
     # Last candidate start is capped both by search_end_sec and by the recording length.
     latest = min(cs["search_end_sec"], max(0.0, max_t - win))
     starts = np.arange(cs["search_start_sec"], latest + 1e-3, step)
@@ -98,7 +104,7 @@ def scan_windows(work: pd.DataFrame, cfg: dict) -> dict:
         min_dist = _min_pairwise_distance(centroids)
         avg_disp = float(np.nanmean([sm["disp_mean"] for sm in summ]))
         if np.isnan(avg_disp):
-            avg_disp = 999.0  # legacy sentinel so empty windows never win
+            avg_disp = 999.0  # large penalty used by the standard method so empty windows cannot win
         score = counts.sum() + wq["min_counts_weight"] * counts.min() + wq["min_dist_weight"] * min_dist - wq["avg_disp_weight"] * avg_disp
 
         # Build the row preserving the original column order; per-block counts expand to N columns

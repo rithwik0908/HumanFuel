@@ -31,6 +31,10 @@ METADATA_COLUMNS = ["participant_id", "trial_index", "trial_number", "sequence_n
 _UNRESOLVED = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 
+class MetadataError(Exception):
+    """Raised when a required metadata source (online or local) is requested but unavailable."""
+
+
 def _norm(s: str) -> str:
     """Normalise a header for matching: lowercase and strip non-alphanumerics."""
     return re.sub(r"[^a-z0-9]", "", str(s).strip().lower())
@@ -88,7 +92,10 @@ def resolve_metadata(cfg: dict, snapshot_dir: Path, log, mode: str = "auto", ret
     """
     md = cfg.get("metadata", {})
     online = {"attempted": False, "success": False, "reason": "disabled"}
-    if mode == "none" or not md.get("enabled"):
+    enabled = bool(md.get("enabled"))
+    # Explicit online/local modes force resolution even if the profile has metadata.enabled = false.
+    # 'none' always disables; 'auto' respects metadata.enabled.
+    if mode == "none" or (mode == "auto" and not enabled):
         return {"source": "none", "workbook": None, "temp_path": None, "online": online}
 
     doc_id = (md.get("online") or {}).get("document_id")
@@ -110,7 +117,9 @@ def resolve_metadata(cfg: dict, snapshot_dir: Path, log, mode: str = "auto", ret
             return {"source": "online", "workbook": workbook, "temp_path": temp_path, "online": online}
         online["reason"] = "online export unavailable or not an xlsx"
         if mode == "online":
-            raise RuntimeError("metadata-mode 'online' requested but the online export was unavailable")
+            raise MetadataError("metadata-mode 'online' requested but the online export was unavailable")
+    elif mode == "online":
+        raise MetadataError("metadata-mode 'online' requested but no resolved online document id was configured")
 
     loc = md.get("local")
     if loc and not _UNRESOLVED.search(str(loc)) and Path(loc).exists():
@@ -118,7 +127,7 @@ def resolve_metadata(cfg: dict, snapshot_dir: Path, log, mode: str = "auto", ret
             log.warning("metadata: online unavailable (%s); using local file", online["reason"])
         return {"source": "local", "workbook": loc, "temp_path": None, "online": online}
     if mode == "local":
-        raise RuntimeError(f"metadata-mode 'local' requested but no local workbook was found: {loc!r}")
+        raise MetadataError(f"metadata-mode 'local' requested but no local workbook was found: {loc!r}")
     log.warning("metadata: no workbook available; proceeding without metadata")
     return {"source": "none", "workbook": None, "temp_path": None, "online": online}
 
@@ -135,14 +144,18 @@ def normalize_metadata(workbook: str | None, mapping: dict, source_label: str, l
     """
     if not workbook or not Path(workbook).exists():
         return pd.DataFrame(columns=METADATA_COLUMNS)
-    xl = pd.ExcelFile(workbook)
     pid_k = _norm(mapping["participant_id_column"])
     seq_k = _norm(mapping.get("sequence_column") or "")
     st_k = _norm(mapping.get("status_column") or "")
     trial_k = {int(k): _norm(v) for k, v in (mapping.get("trial_lod_columns") or {}).items()}
     rows = []
-    for sh in xl.sheet_names:
-        df = xl.parse(sh)
+    try:
+        # Context manager closes the file handle before any caller deletes it (important on Windows).
+        with pd.ExcelFile(workbook) as xl:
+            sheets = {sh: xl.parse(sh) for sh in xl.sheet_names}
+    except Exception as e:  # noqa: BLE001
+        raise MetadataError(f"could not read metadata workbook: {type(e).__name__}") from None
+    for df in sheets.values():
         hdr = {_norm(c): c for c in df.columns}
         if pid_k not in hdr or not all(v in hdr for v in trial_k.values()):
             continue

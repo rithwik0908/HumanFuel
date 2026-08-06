@@ -32,9 +32,14 @@ allow-listed; if you added a custom column with a personal-data-like name, renam
 Set `outputs.{png,svg,pdf,html}` independently. HTML aggregate plots also require the optional
 `plotly` extra (`pip install ".[reports]"`); without it the HTML is skipped and other outputs proceed.
 
+## Validation-only runs
+`--validate-only` runs discovery and schema validation but skips the calibration analysis. It does not
+write selected-window outputs. In the participant inventory, valid discovered data is marked
+`validation_only`, schema-invalid data `invalid_data`, and participants with no recording keep their
+administrative status — a validation-only run never reports `processing_failed`.
+
 ## `pytest` can't import `aria_rig_calibration` or `tests`
-Run from the repository root, or `pip install -e ".[dev]"`. The default suite excludes `local_parity`
-and `network` markers; opt in with `pytest -m local_parity` (requires the private dataset env vars).
+Run from the repository root, or `pip install -e ".[dev]"`.
 
 ## `projectaria-tools` errors
 It is optional (VRS/video only). CSV analysis does not need it.
